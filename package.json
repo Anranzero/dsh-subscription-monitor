@@ -85,8 +85,7 @@
   ],
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/schemastery": "^3.18.1",
-    "undici": "^7.30.0 || ^8.0.0"
+    "@deepseek-ai/schemastery": "^3.18.1"
   },
   "dependencies": {
     "undici": "^7.30.0"

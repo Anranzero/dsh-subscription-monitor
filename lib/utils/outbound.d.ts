@@ -10,6 +10,12 @@
  * Does not call setGlobalDispatcher — DSH and other plugins keep their fetch.
  */
 import { Agent, ProxyAgent, WebSocket } from 'undici';
+/** False when the local `undici` copy could not be resolved; the module then
+ *  degrades to Node's built-in fetch/Headers/WebSocket instead of failing the
+ *  plugin import, and proxy support reports the missing package. */
+export declare const undiciAvailable: boolean;
+/** Why `undiciAvailable` is false — the import error, or `not installed`. */
+export declare const undiciUnavailableReason: string;
 export { WebSocket as OutboundWebSocket };
 export declare const OUTBOUND_PROXY_FILE = "outbound-proxy.json";
 export declare const OUTBOUND_MODES: string[];

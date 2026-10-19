@@ -21,10 +21,13 @@ dsh web
 
 桌面应用请在 **插件 → 添加插件** 里粘贴同一个仓库地址，上面的命令只适用于 web。
 
-**本地 / `link:` 安装同样零步骤。** `@deepseek-ai/cordis`、`@deepseek-ai/schemastery` 和
-`undici` 都是 peer 依赖：`link:` 安装时 DSH 的 linked 解析层会把它们路由到宿主自带的副本，
-本地检出不需要装任何东西。（`undici` 的 peer 范围同时接受插件随附的 7.x 和宿主提供的
-8.x —— 它用到的 dispatcher API `Agent` / `ProxyAgent` / `fetch` 跨这个版本跳跃没有变化。）
+**本地 / `link:` 安装需要先跑一次 `pnpm install`。** `@deepseek-ai/cordis` 和
+`@deepseek-ai/schemastery` 是 peer 依赖，由 DSH 的 linked 解析层路由到宿主副本；
+`undici` 则**故意保持为普通依赖**，不做 peer：宿主自带的是打过补丁的 8.x，文件集合和
+registry 上的包不一样，把它路由进来正是过去导致插件 import 失败、本地代理一起挂掉的原因。
+在插件目录跑一次 `pnpm install`，之后本地安装就是自包含的。万一依赖仍然缺失，插件也会
+正常加载并写明原因，而不是直接死掉 —— 去看
+`<profile>/data/dsh-plugin-oauth-subs/startup.log`。
 
 **2 · 打开工作台**
 
@@ -81,6 +84,7 @@ dsh web
 | 少了某个模型 | 打开 **模型** 页签，确认对应家族是打开的 |
 | 额度不更新 | 点 **刷新额度**——它本身也约每分钟自动刷新一次 |
 | 桌面应用一打开就退出 | 在终端执行 `launchctl unsetenv ELECTRON_RUN_AS_NODE`，再启动 |
+| 所有 OAuth 模型一起报 `Connection error.` | 本地代理没起来。看 `<profile>/data/dsh-plugin-oauth-subs/startup.log`，重启 DSH；恢复前可先切到内置 DeepSeek 模型 |
 
 <details>
 <summary><b>进阶</b> —— 配置、家族与内部实现</summary>

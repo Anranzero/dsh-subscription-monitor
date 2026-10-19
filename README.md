@@ -23,12 +23,16 @@ dsh web
 
 On the desktop app, use **插件 Plugins → 添加插件** and paste the same repo URL instead — the command above is web-only.
 
-**Local / `link:` installs work with no extra steps.** `@deepseek-ai/cordis`,
-`@deepseek-ai/schemastery` and `undici` are peer dependencies: under a `link:`
-install DSH's linked-resolution layer routes them to the host's own copies, so a
-local checkout needs nothing installed. (The `undici` peer range accepts both the
-7.x this plugin ships with and the 8.x the host provides — the dispatcher API it
-uses, `Agent` / `ProxyAgent` / `fetch`, is unchanged across that jump.)
+**Local / `link:` installs need one `pnpm install`.** `@deepseek-ai/cordis` and
+`@deepseek-ai/schemastery` are peer dependencies, so DSH's linked-resolution
+layer routes them to the host's copies. `undici` is deliberately a **regular
+dependency**, not a peer: the host ships its own patched 8.x build whose file
+set differs from the registry package, and routing that build in is what used
+to make the plugin fail to import (taking the loopback proxy down with it).
+Run `pnpm install` in the plugin checkout once; after that a local install is
+self-contained. If the package is missing anyway, the plugin still loads and
+reports the reason instead of dying — check
+`<profile>/data/dsh-plugin-oauth-subs/startup.log`.
 
 **2 · Open the workbench**
 
@@ -85,6 +89,7 @@ Open the **模型 Models** tab, switch on the families you want, then pick a mod
 | A model is missing | Open **模型 Models** and check its family is switched on |
 | Quota looks stale | Tap **刷新额度** — it also refreshes on its own about once a minute |
 | The desktop app closes the moment it opens | Run `launchctl unsetenv ELECTRON_RUN_AS_NODE` in Terminal, then start it again |
+| Every OAuth model fails with `Connection error.` | The loopback proxy is not running. Read `<profile>/data/dsh-plugin-oauth-subs/startup.log`, restart DSH, or switch to a built-in DeepSeek model until it is back |
 
 <details>
 <summary><b>Advanced</b> — configuration, families, internals and diagnostics</summary>

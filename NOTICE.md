@@ -20,19 +20,24 @@ possible.
 
 Changes made on top of upstream v0.0.124:
 
-- **Manifest — `@deepseek-ai/schemastery` and `undici` are now peer
-  dependencies.** Both ship with the DSH host (`app.asar`), so they belong in
-  `peerDependencies` next to `@deepseek-ai/cordis`. Under a `link:` install the
-  DSH linked-resolution layer only intercepts peer-declared packages; as regular
-  dependencies they resolved to nothing and the plugin's node half failed to
-  import, which the UI reports as "未运行 / not running" with no sidebar entry.
-  With the peer declarations the host's copies are routed in automatically, so a
-  local checkout needs no `pnpm install` of its own. `undici`'s peer range is
-  `^7.30.0 || ^8.0.0` because the host ships undici 8.x while this plugin's own
-  `dependencies` pin 7.x; the dispatcher API it uses (`Agent`, `ProxyAgent`,
-  `fetch`) is unchanged across that jump, verified against the host's 8.11.2.
-  `undici` also stays in `dependencies`, so a GitHub / registry install remains
-  self-contained even if a future host stops shipping it.
+- **Manifest — only `@deepseek-ai/schemastery` and `@deepseek-ai/cordis` are
+  peers.** Both ship with the DSH host (`app.asar`), so `peerDependencies` is the
+  right home for them; under a `link:` install the DSH linked-resolution layer
+  intercepts peer-declared packages only.
+
+  `undici` is deliberately **not** a peer. An earlier revision made it one with
+  the range `^7.30.0 || ^8.0.0`, so the host's patched 8.11.2 build could be
+  routed in. That build's file set differs from the registry package (it carries
+  `lib/dispatcher/dispatcher1-wrapper.js`, a host patch), and when a copy missing
+  that file landed in the plugin's resolution path, the plugin failed at import
+  time — before `apply()` ran — so the loopback proxy never listened and every
+  oauth model surfaced as `Connection error.` with no explanation. `undici` is a
+  regular dependency again (`^7.30.0`), which pins resolution to the registry
+  package; a local checkout needs one `pnpm install`. `lib/utils/outbound.js`
+  also loads it through a guarded dynamic import: if the package is missing the
+  plugin still loads, falls back to Node's built-in `fetch` / `Headers` /
+  `WebSocket` for direct traffic, disables proxy settings with a clear message,
+  and records the outcome in `data/dsh-plugin-oauth-subs/startup.log`.
 
 - **Usage tab — merge by model name.** The per-model list grouped rows by
   `family/model`, so a model reached through two credentials (e.g. `grok-4.6` via
