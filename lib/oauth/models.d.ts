@@ -166,7 +166,7 @@ export declare function catalogKeys(providers: Record<string, any>): any[];
 export declare function familyOfProvider(provider: string): string;
 export declare function familyOfKey(key: string): string;
 export declare function familyCatalogKeys(catalog: Record<string, HarnessProvider>, family: string): string[];
-export declare function harnessModelAlias(provider: string, id: string): string;
+export declare function harnessModelAlias(provider: string, id: string, displayName?: string): string;
 /**
  * `rates` (`<family>/<model id>` → cost multiplier) is display-only: it never
  * rides in a route row. `pricing` (`<family>/<model id>` → rates.json row)
