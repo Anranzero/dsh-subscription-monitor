@@ -20,15 +20,19 @@ possible.
 
 Changes made on top of upstream v0.0.124:
 
-- **Manifest — `@deepseek-ai/schemastery` is now a peer dependency.** It ships
-  with the DSH host (`app.asar`), so it belongs in `peerDependencies` like
-  `@deepseek-ai/cordis`. Under a `link:` install the DSH linked-resolution layer
-  only intercepts peer-declared packages; as a regular dependency it resolved to
-  nothing and the plugin's node half failed to import, which the UI reports as
-  "未运行 / not running". Registry and GitHub installs are unaffected (pnpm
-  installs it into the profile's own `node_modules` either way). `undici` stays a
-  regular dependency — the host ships undici 8.x, which does not satisfy this
-  plugin's `^7.30.0` range, so it must not be routed to the host copy.
+- **Manifest — `@deepseek-ai/schemastery` and `undici` are now peer
+  dependencies.** Both ship with the DSH host (`app.asar`), so they belong in
+  `peerDependencies` next to `@deepseek-ai/cordis`. Under a `link:` install the
+  DSH linked-resolution layer only intercepts peer-declared packages; as regular
+  dependencies they resolved to nothing and the plugin's node half failed to
+  import, which the UI reports as "未运行 / not running" with no sidebar entry.
+  With the peer declarations the host's copies are routed in automatically, so a
+  local checkout needs no `pnpm install` of its own. `undici`'s peer range is
+  `^7.30.0 || ^8.0.0` because the host ships undici 8.x while this plugin's own
+  `dependencies` pin 7.x; the dispatcher API it uses (`Agent`, `ProxyAgent`,
+  `fetch`) is unchanged across that jump, verified against the host's 8.11.2.
+  `undici` also stays in `dependencies`, so a GitHub / registry install remains
+  self-contained even if a future host stops shipping it.
 
 - **Usage tab — merge by model name.** The per-model list grouped rows by
   `family/model`, so a model reached through two credentials (e.g. `grok-4.6` via

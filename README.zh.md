@@ -21,11 +21,10 @@ dsh web
 
 桌面应用请在 **插件 → 添加插件** 里粘贴同一个仓库地址，上面的命令只适用于 web。
 
-**本地 / `link:` 安装** —— 如果是从本地检出安装的（例如在 profile 的 `package.json` 里写
-`link:C:/Users/<你>/.dsh/local-plugins/dsh-subscription-monitor`），需要先在该目录下执行
-`pnpm install`。插件的普通依赖（`undici`）不由 DSH 宿主提供，链接安装必须自备
-`node_modules`；`@deepseek-ai/schemastery` 和 `@deepseek-ai/cordis` 是 peer 依赖，
-会由宿主自动解析。
+**本地 / `link:` 安装同样零步骤。** `@deepseek-ai/cordis`、`@deepseek-ai/schemastery` 和
+`undici` 都是 peer 依赖：`link:` 安装时 DSH 的 linked 解析层会把它们路由到宿主自带的副本，
+本地检出不需要装任何东西。（`undici` 的 peer 范围同时接受插件随附的 7.x 和宿主提供的
+8.x —— 它用到的 dispatcher API `Agent` / `ProxyAgent` / `fetch` 跨这个版本跳跃没有变化。）
 
 **2 · 打开工作台**
 
