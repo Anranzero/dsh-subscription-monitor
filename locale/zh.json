@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "聚合OAuth 订阅",
+    "title": "dsh-subscription-monitor",
     "description": "把订阅制与 API Key 供应商登录进 DeepSeek Harness，刷新各家额度，并通过本地代理把路由同步给 llm-pi-ai。"
   }
 }

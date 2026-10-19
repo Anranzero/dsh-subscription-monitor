@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "OAuth Subs",
+    "title": "dsh-subscription-monitor",
     "description": "Signs subscription and API-key providers into DeepSeek Harness, refreshes their quota, and syncs the routes into llm-pi-ai through a local proxy."
   }
 }

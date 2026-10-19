@@ -48,7 +48,7 @@ export declare const GLM_QUOTA_URL = "https://api.z.ai/api/monitor/usage/quota/l
 export declare const GLM_TOOL_USAGE_URL = "https://api.z.ai/api/monitor/usage/tool-usage";
 export declare const GLM_USERINFO_URL = "https://chat.z.ai/api/oauth/userinfo";
 export declare const GLM_BIGMODEL_USERINFO_URL = "https://open.bigmodel.cn/api/biz/customer/getCustomerInfo";
-export declare const GLM_KEY_NAME = "dsh-plugin-oauth-subs";
+export declare const GLM_KEY_NAME = "dsh-subscription-monitor";
 /** CLI / site ids. Never show these as the account name on the card. Opaque poll `user.id` is `isGlmOpaqueAccount`. */
 export declare const GLM_APP_ACCOUNTS: readonly string[];
 /** Official ZCode Desktop, latest stable (https://zcode.z.ai/en/changelog). */

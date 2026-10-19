@@ -17,7 +17,7 @@ export declare const KIMI_CHAT_URL = "https://api.kimi.com/coding/v1/chat/comple
 export declare const KIMI_MODELS_URL = "https://api.kimi.com/coding/v1/models";
 export declare const KIMI_USAGE_URL = "https://api.kimi.com/coding/v1/usages";
 export declare const KIMI_ME_URL = "https://api.kimi.com/coding/v1/me";
-export declare const KIMI_USER_AGENT = "dsh-plugin-oauth-subs";
+export declare const KIMI_USER_AGENT = "dsh-subscription-monitor";
 export declare const KIMI_PLATFORM = "dsh";
 export declare const KIMI_PREEMPT_MS: number;
 export declare const KIMI_NEVER_EXPIRES = 8640000000000000;

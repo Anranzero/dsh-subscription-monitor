@@ -1,5 +1,5 @@
 /**
- * dsh-plugin-oauth-subs host half.
+ * dsh-subscription-monitor host half.
  *
  * A Cordis plugin (export apply + inject + Config) that:
  *   1. runs a loopback OpenAI Responses proxy on 127.0.0.1:<port>
@@ -14,7 +14,7 @@
  * this module only owns the node process.
  */
 import z from '@deepseek-ai/schemastery';
-export declare const name = "dsh-plugin-oauth-subs";
+export declare const name = "dsh-subscription-monitor";
 export declare const inject: string[];
 /** Schemastery Standard Schema — Cordis reads Config["~standard"].validate. */
 export declare const Config: z<Schemastery.ObjectS<{

@@ -2,10 +2,10 @@
 
 [简体中文](README.zh.md) | English
 
-> **A local fork of `dsh-plugin-oauth-subs`.** The upstream repository
-> (`github.com/xxww0098/dsh-plugin-oauth-subs`) was removed by its author, so this fork
-> keeps the plugin installable. See [NOTICE.md](NOTICE.md) for provenance and the list of
-> local changes.
+> **A local fork of `dsh-plugin-oauth-subs`, renamed to `dsh-subscription-monitor`.** The
+> upstream repository (`github.com/xxww0098/dsh-plugin-oauth-subs`) was removed by its
+> author, so this fork keeps the plugin installable. See [NOTICE.md](NOTICE.md) for
+> provenance and the list of local changes.
 
 **Use the AI subscriptions you already pay for, inside [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness).** Sign in once and your ChatGPT / Codex, Grok, GLM, Kiro, Antigravity, Cursor, Ollama Cloud, Kimi, Devin or Cline plan becomes a model you can pick in any session — with quota, models and usage in one workbench.
 
@@ -125,7 +125,7 @@ Per-family model catalogs, efforts, windows, quota endpoints, and pricing source
 
 ### Where data lives
 
-Tokens live in `<profile>/data/dsh-plugin-oauth-subs/auth.json` (`0600`); OpenCode Go accounts in `opencode-go.json`; model selections in `models.json` — all in that data directory.
+Tokens live in `<profile>/data/dsh-plugin-oauth-subs/auth.json` (`0600`) — the directory keeps its pre-rename name so an upgraded install reuses it; OpenCode Go accounts in `opencode-go.json`; model selections in `models.json` — all in that data directory.
 
 ### Options
 

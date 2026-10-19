@@ -2,8 +2,8 @@
 
 简体中文 | [English](README.md)
 
-> **本项目是 `dsh-plugin-oauth-subs` 的本地 fork。** 上游仓库
-> （`github.com/xxww0098/dsh-plugin-oauth-subs`）已被作者删除，本 fork 用于让插件继续
+> **本项目是 `dsh-plugin-oauth-subs` 的本地 fork，现已更名为 `dsh-subscription-monitor`。**
+> 上游仓库（`github.com/xxww0098/dsh-plugin-oauth-subs`）已被作者删除，本 fork 用于让插件继续
 > 可安装。来源说明与本地改动见 [NOTICE.md](NOTICE.md)。
 
 **把你已经在付费的 AI 订阅接进 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)。** 登录一次，ChatGPT / Codex、Grok、GLM、Kiro、Antigravity、Cursor、Ollama Cloud、Kimi、Devin、Cline 的套餐就变成会话里能直接选的模型——额度、模型、用量都在一个工作台里。
@@ -123,7 +123,7 @@ dsh web
 
 ### 数据位置
 
-凭据在 `<profile>/data/dsh-plugin-oauth-subs/auth.json`（`0600`）；OpenCode Go 账号在 `opencode-go.json`；模型选择在 `models.json`——都在该数据目录下。
+凭据在 `<profile>/data/dsh-plugin-oauth-subs/auth.json`（`0600`）——目录沿用改名前的名字，升级后直接复用；OpenCode Go 账号在 `opencode-go.json`；模型选择在 `models.json`——都在该数据目录下。
 
 ### 配置项
 

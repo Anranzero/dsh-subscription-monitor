@@ -4,6 +4,9 @@
 
 This repository is a **local fork of `dsh-plugin-oauth-subs`** (v0.0.124), originally
 published by **xxww0098** at `https://github.com/xxww0098/dsh-plugin-oauth-subs`.
+The fork is published as `dsh-subscription-monitor`; the on-disk data directory keeps
+its original name (`data/dsh-plugin-oauth-subs`) so existing credentials and usage
+caches keep working.
 
 That upstream repository has since been **removed by its author**. This copy was taken
 from an installed package before the removal, and is redistributed here under the

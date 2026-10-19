@@ -4,7 +4,7 @@
 # declaration and serves the ./client export.
 - insert:
     - id: oauth-subs
-      name: dsh-plugin-oauth-subs
+      name: dsh-subscription-monitor
       config:
         port: 8318
         provider: oauth

@@ -51,7 +51,7 @@ const probe = {
   },
   packageRealPath: (profile: string) => {
     try {
-      return realpathSync(join(profilesDir, profile, 'node_modules', 'dsh-plugin-oauth-subs'))
+      return realpathSync(join(profilesDir, profile, 'node_modules', 'dsh-subscription-monitor'))
     } catch {
       return undefined
     }

@@ -11,20 +11,20 @@
  *
  * About "当前版本" is the package this process actually loaded
  * (`import.meta.url` → `../../package.json`). Profile
- * `node_modules/dsh-plugin-oauth-subs/package.json` can already be newer
+ * `node_modules/dsh-subscription-monitor/package.json` can already be newer
  * while Cordis still requires another copy — compare GitHub against the
  * running module. `.dsh-module-fallback` and `$DSH_HOME/profiles/node_modules`
  * are extra copies we report, not the About version.
  */
 export declare function modulePackageJsonPath(): string;
-export declare const REPO_SLUG = "xxww0098/dsh-plugin-oauth-subs";
-export declare const REPO_URL = "https://github.com/xxww0098/dsh-plugin-oauth-subs";
-export declare const RELEASES_API = "https://api.github.com/repos/xxww0098/dsh-plugin-oauth-subs/releases/latest";
+export declare const REPO_SLUG = "xxww0098/dsh-subscription-monitor";
+export declare const REPO_URL = "https://github.com/xxww0098/dsh-subscription-monitor";
+export declare const RELEASES_API = "https://api.github.com/repos/xxww0098/dsh-subscription-monitor/releases/latest";
 /** About changelog shows this many newest published releases, no more. */
 export declare const CHANGELOG_LIMIT = 3;
-export declare const RELEASES_LATEST_HTML = "https://github.com/xxww0098/dsh-plugin-oauth-subs/releases/latest";
+export declare const RELEASES_LATEST_HTML = "https://github.com/xxww0098/dsh-subscription-monitor/releases/latest";
 export declare const PLATFORMS: readonly string[];
-export declare const PLUGIN_NAME = "dsh-plugin-oauth-subs";
+export declare const PLUGIN_NAME = "dsh-subscription-monitor";
 export declare const DEFAULT_PROFILE = "web";
 export declare const DSH_BIN = "dsh";
 export declare const GH_BIN = "gh";

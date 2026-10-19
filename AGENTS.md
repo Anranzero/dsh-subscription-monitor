@@ -1,6 +1,6 @@
 # AGENTS.md
 
-本文件对 **dsh-plugin-oauth-subs** 的每一次改动都有约束力，对话里的临时说法不能盖过它。
+本文件对 **dsh-subscription-monitor** 的每一次改动都有约束力，对话里的临时说法不能盖过它。
 它只做索引：下面链接的文档与本文件同等约束，动手前先读和改动相关的那几份。
 
 ## codebase-memory-mcp

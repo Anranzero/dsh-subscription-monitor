@@ -27,7 +27,7 @@ export declare const KIMI_WORK_MODELS_URL = "https://agent-gw.kimi.com/coding/v1
 export declare const KIMI_WORK_MEMBER_BASE = "https://www.kimi.com/apiv2/kimi.gateway.membership.v2.MembershipService/";
 export declare const KIMI_WORK_USAGE_URL = "https://www.kimi.com/apiv2/kimi.gateway.membership.v2.MembershipService/GetSubscriptionStats";
 /** This plugin's own UA — the upstream package uses its own too and does not impersonate the desktop client. */
-export declare const KIMI_WORK_USER_AGENT = "dsh-plugin-oauth-subs";
+export declare const KIMI_WORK_USER_AGENT = "dsh-subscription-monitor";
 /** The server lists the plan's XL context; the standard window is the cap (upstream modelRows). */
 export declare const KIMI_WORK_CONTEXT_CAP = 262144;
 export declare const KIMI_WORK_MAX_TOKENS = 32768;
