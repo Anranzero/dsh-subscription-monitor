@@ -26,6 +26,15 @@ test('appends live-only ids with the vendor name/window and the models.dev proto
   assert.deepEqual(live.row, { id: 'new-chat', name: 'New Chat', contextWindow: 131072 })
 })
 
+test('ids on protocols DSH cannot serve (models.dev @ai-sdk/google) stay out', () => {
+  const entries = mergeOpencodeGoModels(
+    [{ id: 'gemini-4-argon-contributor', name: 'Gemini 4 Argon Contributor', context_length: 1048576 }],
+    { 'gemini-4-argon-contributor': { provider: { npm: '@ai-sdk/google' }, limit: { context: 1048576 } } },
+  )
+  assert.equal(entries.some(entry => entry.row.id === 'gemini-4-argon-contributor'), false)
+  assert.equal(opencodeGoRouteModels('opencode-go-flash').some(row => row.id === 'gemini-4-argon-contributor'), false)
+})
+
 test('curated rows keep their dialects and ids; duplicates are ignored', () => {
   const entries = mergeOpencodeGoModels([{ id: 'step-5-preview', name: 'Renamed Upstream', context_length: 1 }])
   const row = entries.find(entry => entry.row.id === 'step-5-preview').row
