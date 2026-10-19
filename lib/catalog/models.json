@@ -6835,6 +6835,44 @@
             "rate": 1
         }
     ],
+    "minimax": [
+            {
+                "id": "MiniMax-M3.1-Flash",
+                "name": "MiniMax-M3.1-Flash",
+                "contextWindow": 1000000,
+                "maxTokens": 512000,
+                "input": [
+                    "text",
+                    "image"
+                ],
+                "reasoningEfforts": {
+                    "low": "low",
+                    "medium": "medium",
+                    "high": "high",
+                    "xhigh": "xhigh",
+                    "max": "max"
+                }
+            },
+            {
+                "id": "MiniMax-M3",
+                "name": "MiniMax-M3",
+                "contextWindow": 1000000,
+                "maxTokens": 512000,
+                "input": [
+                    "text",
+                    "image"
+                ]
+            },
+            {
+                "id": "MiniMax-M2.7",
+                "name": "MiniMax-M2.7",
+                "contextWindow": 204800,
+                "maxTokens": 131072,
+                "input": [
+                    "text"
+                ]
+            }
+        ],
     "mimo": [
         {
             "id": "mimo-pro",

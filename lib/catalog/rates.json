@@ -807,6 +807,19 @@
             "in": 0.1, "out": 3, "cacheRead": 0.1
         }
     },
+    "minimax": {
+        "MiniMax-M3.1-Flash": {
+            "in": 0.15, "out": 0.6, "cacheRead": 0.015
+        },
+        "MiniMax-M3": {
+            "in": 0.3, "out": 1.2, "cacheRead": 0.06,
+            "tierThreshold": 512000,
+            "tiers": [{ "in": 0.6, "out": 2.4, "cacheRead": 0.12 }]
+        },
+        "MiniMax-M2.7": {
+            "in": 0.3, "out": 1.2, "cacheRead": 0.06, "cacheWrite": 0.375
+        }
+    },
     "command-code": {
         "nvidia/nemotron-3.5-super-vl": {
             "in": 0.2, "out": 0.5, "cacheRead": 0.04
