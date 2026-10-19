@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { opencodeZenInUse } from '../lib/apikey/opencode-go/accounts.js'
 import { ensureOpencodeZenRoute } from '../lib/oauth/harness-sync.js'
-import { OPENCODE_ZEN_ROUTES } from '../lib/apikey/opencode-go/models.js'
+import { opencodeZenRoutes } from '../lib/apikey/opencode-go/models.js'
 
 function settingsFixture(initial: Record<string, any> = {}) {
   const providers: Record<string, any> = structuredClone(initial)
@@ -39,7 +39,7 @@ test('without a Zen wallet read the sync writes no Zen route at all', async () =
 test('existing owned Zen routes are removed when Zen is not in use', async () => {
   const settings = settingsFixture()
   await ensureOpencodeZenRoute(settings)
-  assert.deepEqual(Object.keys(settings.providers).sort(), OPENCODE_ZEN_ROUTES.map(route => route.id).sort())
+  assert.deepEqual(Object.keys(settings.providers).sort(), opencodeZenRoutes().map(route => route.id).sort())
   await ensureOpencodeZenRoute(settings, { selected: [] })
   assert.deepEqual(Object.keys(settings.providers), [])
 })
@@ -53,7 +53,7 @@ test('a user-owned profile on the same route id is left alone', async () => {
 
 test('an enabled Zen pick still writes exactly the picked rows', async () => {
   const settings = settingsFixture()
-  const route = OPENCODE_ZEN_ROUTES[0]
+  const route = opencodeZenRoutes()[0]
   const picked = `${route.id}/${route.models[0].id}`
   await ensureOpencodeZenRoute(settings, { selected: [picked] })
   assert.deepEqual(settings.providers[route.id].models.map((model: any) => model.id), [route.models[0].id])

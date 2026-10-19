@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { catalogProviders, FAMILY_IDS, harnessModelAlias } from '../lib/oauth/models.js'
 import { ensureOpencodeGoRoute, ensureOpencodeZenRoute, syncHarnessModels } from '../lib/oauth/harness-sync.js'
-import { OPENCODE_GO_ROUTES, OPENCODE_ZEN_ROUTES } from '../lib/apikey/opencode-go/models.js'
+import { opencodeGoRoutes, opencodeZenRoutes } from '../lib/apikey/opencode-go/models.js'
 
 const origin = 'http://localhost:12345'
 const agentNames = {
@@ -71,7 +71,7 @@ test('both synchronization paths change only model names across the complete cat
   const catalog = catalogProviders({ prefix: 'oauth', origin })
   // OpenCode's existing writer preserves raw route rows (caps and compat);
   // the settings picker projection intentionally has a different row shape.
-  for (const route of [...OPENCODE_GO_ROUTES, ...OPENCODE_ZEN_ROUTES]) {
+  for (const route of [...opencodeGoRoutes(), ...opencodeZenRoutes()]) {
     catalog[route.id] = { ...catalog[route.id], models: route.models }
   }
   const settings = settingsFixture()

@@ -74,67 +74,7 @@ export declare function opencodeGoSessionHeaders(): {
  * (same shape as the GLM 400K plan cap). Maintainer override 2026-09-29 —
  * pinned in the `"opencode-go-responses"` rows (258,000).
  */
-export declare const OPENCODE_GO_EXTRA_MODELS: readonly any[];
-export declare const OPENCODE_GO_RESPONSES_MODELS: readonly any[];
-export declare const OPENCODE_GO_MESSAGES_MODELS: readonly any[];
-export declare const OPENCODE_GO_EXTRA_ROUTE: Readonly<{
-    id: "opencode-go-flash";
-    displayName: "Subs · OpenCode Go · Chat";
-    api: "openai-completions";
-    baseURL: "https://opencode.ai/zen/go/v1";
-    headers: Readonly<{
-        "x-opencode-session": string;
-    }>;
-    models: readonly any[];
-}>;
-export declare const OPENCODE_GO_RESPONSES_ROUTE: Readonly<{
-    id: "opencode-go-responses";
-    displayName: "Subs · OpenCode Go · Responses";
-    api: "openai-responses";
-    baseURL: "https://opencode.ai/zen/go/v1";
-    headers: Readonly<{
-        "x-opencode-session": string;
-    }>;
-    models: readonly any[];
-}>;
-export declare const OPENCODE_GO_MESSAGES_ROUTE: Readonly<{
-    id: "opencode-go-messages";
-    displayName: "Subs · OpenCode Go · Anthropic";
-    api: "anthropic-messages";
-    baseURL: "https://opencode.ai/zen/go";
-    headers: Readonly<{
-        "x-opencode-session": string;
-    }>;
-    models: readonly any[];
-}>;
-export declare const OPENCODE_GO_ROUTES: readonly (Readonly<{
-    id: "opencode-go-flash";
-    displayName: "Subs · OpenCode Go · Chat";
-    api: "openai-completions";
-    baseURL: "https://opencode.ai/zen/go/v1";
-    headers: Readonly<{
-        "x-opencode-session": string;
-    }>;
-    models: readonly any[];
-}> | Readonly<{
-    id: "opencode-go-responses";
-    displayName: "Subs · OpenCode Go · Responses";
-    api: "openai-responses";
-    baseURL: "https://opencode.ai/zen/go/v1";
-    headers: Readonly<{
-        "x-opencode-session": string;
-    }>;
-    models: readonly any[];
-}> | Readonly<{
-    id: "opencode-go-messages";
-    displayName: "Subs · OpenCode Go · Anthropic";
-    api: "anthropic-messages";
-    baseURL: "https://opencode.ai/zen/go";
-    headers: Readonly<{
-        "x-opencode-session": string;
-    }>;
-    models: readonly any[];
-}>)[];
+export declare function opencodeGoRoutes(): any[];
 /**
  * OpenCode Zen — the pay-as-you-go sibling that shares this family's account,
  * API key, Console session and workspace, on its own origin
@@ -177,43 +117,4 @@ export declare const OPENCODE_ZEN_ANTHROPIC_BASE_URL = "https://opencode.ai/zen"
 export declare const OPENCODE_ZEN_CHAT_MODELS: readonly any[];
 export declare const OPENCODE_ZEN_RESPONSES_MODELS: readonly any[];
 export declare const OPENCODE_ZEN_MESSAGES_MODELS: readonly any[];
-export declare const OPENCODE_ZEN_CHAT_ROUTE: Readonly<{
-    id: "opencode-zen-chat";
-    displayName: "Subs · OpenCode Zen · Chat";
-    api: "openai-completions";
-    baseURL: "https://opencode.ai/zen/v1";
-    models: readonly any[];
-}>;
-export declare const OPENCODE_ZEN_RESPONSES_ROUTE: Readonly<{
-    id: "opencode-zen-responses";
-    displayName: "Subs · OpenCode Zen · Responses";
-    api: "openai-responses";
-    baseURL: "https://opencode.ai/zen/v1";
-    models: readonly any[];
-}>;
-export declare const OPENCODE_ZEN_MESSAGES_ROUTE: Readonly<{
-    id: "opencode-zen-messages";
-    displayName: "Subs · OpenCode Zen · Anthropic";
-    api: "anthropic-messages";
-    baseURL: "https://opencode.ai/zen";
-    models: readonly any[];
-}>;
-export declare const OPENCODE_ZEN_ROUTES: readonly (Readonly<{
-    id: "opencode-zen-chat";
-    displayName: "Subs · OpenCode Zen · Chat";
-    api: "openai-completions";
-    baseURL: "https://opencode.ai/zen/v1";
-    models: readonly any[];
-}> | Readonly<{
-    id: "opencode-zen-responses";
-    displayName: "Subs · OpenCode Zen · Responses";
-    api: "openai-responses";
-    baseURL: "https://opencode.ai/zen/v1";
-    models: readonly any[];
-}> | Readonly<{
-    id: "opencode-zen-messages";
-    displayName: "Subs · OpenCode Zen · Anthropic";
-    api: "anthropic-messages";
-    baseURL: "https://opencode.ai/zen";
-    models: readonly any[];
-}>)[];
+export declare function opencodeZenRoutes(): any[];
