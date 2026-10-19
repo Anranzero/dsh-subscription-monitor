@@ -1,42 +1,23 @@
-# dsh-plugin-oauth-subs
+# dsh-subscription-monitor
 
 [简体中文](README.zh.md) | English
 
-[![CI](https://github.com/xxww0098/dsh-plugin-oauth-subs/actions/workflows/ci.yml/badge.svg)](https://github.com/xxww0098/dsh-plugin-oauth-subs/actions/workflows/ci.yml)
+> **A local fork of `dsh-plugin-oauth-subs`.** The upstream repository
+> (`github.com/xxww0098/dsh-plugin-oauth-subs`) was removed by its author, so this fork
+> keeps the plugin installable. See [NOTICE.md](NOTICE.md) for provenance and the list of
+> local changes.
 
 **Use the AI subscriptions you already pay for, inside [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness).** Sign in once and your ChatGPT / Codex, Grok, GLM, Kiro, Antigravity, Cursor, Ollama Cloud, Kimi, Devin or Cline plan becomes a model you can pick in any session — with quota, models and usage in one workbench.
 
-![Subscription workbench — quota tab with per-account cards and provider rail](docs/readme-workbench.jpg)
-
-<details>
-<summary><b>More pages</b> — 模型 Models · 用量 Usage · 榜单 Leaderboard · 设置 Settings</summary>
-
-<br>
-
-### 模型 Models
-
-![Models tab — model catalog with per-family enable switches](docs/screenshots/models.jpg)
-
-### 用量 Usage
-
-![Usage tab — token, cache-read, call and estimated-cost panels](docs/screenshots/usage.jpg)
-
-### 榜单 Leaderboard
-
-![Leaderboard tab — model ranking by net improvement](docs/screenshots/ranking.jpg)
-
-### 设置 Settings
-
-![Settings tab — version, repository, auto-update and proxy](docs/screenshots/settings.jpg)
-
-</details>
+> Screenshots from the upstream README are not included in this fork — the upstream
+> repository and its `docs/` assets no longer exist.
 
 ## Quick start
 
 **1 · Install the plugin**
 
 ```sh
-dsh plugin --profile web add https://github.com/xxww0098/dsh-plugin-oauth-subs
+dsh plugin --profile web add https://github.com/Anranzero/dsh-subscription-monitor
 dsh web
 ```
 

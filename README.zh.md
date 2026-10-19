@@ -1,42 +1,21 @@
-# dsh-plugin-oauth-subs
+# dsh-subscription-monitor
 
 简体中文 | [English](README.md)
 
-[![CI](https://github.com/xxww0098/dsh-plugin-oauth-subs/actions/workflows/ci.yml/badge.svg)](https://github.com/xxww0098/dsh-plugin-oauth-subs/actions/workflows/ci.yml)
+> **本项目是 `dsh-plugin-oauth-subs` 的本地 fork。** 上游仓库
+> （`github.com/xxww0098/dsh-plugin-oauth-subs`）已被作者删除，本 fork 用于让插件继续
+> 可安装。来源说明与本地改动见 [NOTICE.md](NOTICE.md)。
 
 **把你已经在付费的 AI 订阅接进 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)。** 登录一次，ChatGPT / Codex、Grok、GLM、Kiro、Antigravity、Cursor、Ollama Cloud、Kimi、Devin、Cline 的套餐就变成会话里能直接选的模型——额度、模型、用量都在一个工作台里。
 
-![订阅工作台 —— 额度页签、账号卡片与供应商栏](docs/readme-workbench.jpg)
-
-<details>
-<summary><b>更多页面</b> —— 模型 · 用量 · 榜单 · 设置</summary>
-
-<br>
-
-### 模型
-
-![模型页 —— 模型目录与各家族启用开关](docs/screenshots/models.jpg)
-
-### 用量
-
-![用量页 —— Token、缓存读、调用与估算成本](docs/screenshots/usage.jpg)
-
-### 榜单
-
-![榜单页 —— 按净提升排序的模型榜单](docs/screenshots/ranking.jpg)
-
-### 设置
-
-![设置页 —— 版本、仓库、自动更新与代理](docs/screenshots/settings.jpg)
-
-</details>
+> 上游 README 中的截图未包含在本 fork 中 —— 上游仓库及其 `docs/` 资源已不存在。
 
 ## 快速开始
 
 **1 · 安装插件**
 
 ```sh
-dsh plugin --profile web add https://github.com/xxww0098/dsh-plugin-oauth-subs
+dsh plugin --profile web add https://github.com/Anranzero/dsh-subscription-monitor
 dsh web
 ```
 

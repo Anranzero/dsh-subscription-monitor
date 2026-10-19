@@ -8,12 +8,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/xxww0098/dsh-plugin-oauth-subs.git"
+    "url": "git+https://github.com/Anranzero/dsh-subscription-monitor.git"
   },
   "bugs": {
-    "url": "https://github.com/xxww0098/dsh-plugin-oauth-subs/issues"
+    "url": "https://github.com/Anranzero/dsh-subscription-monitor/issues"
   },
-  "homepage": "https://github.com/xxww0098/dsh-plugin-oauth-subs#readme",
+  "homepage": "https://github.com/Anranzero/dsh-subscription-monitor#readme",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
