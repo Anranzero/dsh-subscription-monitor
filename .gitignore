@@ -25,3 +25,6 @@ token.json
 
 # DSH per-plugin runtime data
 data/
+
+# Scraped reference pages (firecrawl)
+.firecrawl/
