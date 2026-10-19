@@ -27,6 +27,13 @@ Changes made on top of upstream v0.0.124, all confined to `lib/ui/client.js`:
   longest streak), a year-wide activity heatmap with a month axis and
   每日·每周·累计 toggle, a smooth area trend chart (top 3 models, hover with guide
   line + dots + tooltip), and a model-share donut carrying its own total.
+- **统计 covers every model DSH ran**, not only this plugin's routes. The `usage`
+  RPC takes an opt-in `includeAll` flag that keeps every provider under its own
+  id instead of discarding it; the default answer (the 用量 tab) is unchanged.
+- **Composer quota badge** (absorbed from `dsh-provider-quota-meter`, whose own
+  composer chip covered only OpenCode and CommandCode). The active session's
+  model provider is mapped to its family and that family's remaining share is
+  shown in the input toolbar, for all 20+ families this plugin manages.
 - **Layout.** The shell's `max-width` went 1000px → 1280px and is now centred;
   the stats page reuses the same shell width instead of opting out.
 
