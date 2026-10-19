@@ -1,0 +1,27 @@
+# Dependencies are declared in package.json; never commit the installed tree.
+node_modules/
+.pnpm-store/
+
+# Local build / tooling output
+dist/
+*.tsbuildinfo
+*.log
+
+# Editor & OS noise
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Never commit credentials, tokens or per-profile state
+auth.json
+credentials.json
+token.json
+*.pem
+*.key
+.env
+.env.*
+
+# DSH per-plugin runtime data
+data/

@@ -1,0 +1,869 @@
+#!/usr/bin/env node
+/**
+ * Model catalog refresh: every key of `src/catalog/models.json` against its
+ * recorded model source (vendor endpoint, CLI list, or public registry).
+ *
+ *   npm run build && npm run models                    # dry run, every key
+ *   npm run models -- codex,kiro                       # some keys
+ *   npm run models -- --write [--prune] [--json] [--profile desktop]
+ *
+ * Read-only toward accounts, like live-smoke: stored logins come from
+ * `auth.json` / `opencode-go.json`, a token that expires within 2 minutes is
+ * skipped (never refreshed), nothing is written to the store. Model-list calls
+ * spend no quota. Egress follows the plugin's outbound proxy file and
+ * `HTTPS_PROXY`, because Kiro / Cursor lists are region-filtered.
+ *
+ * The merge rules and the per-key source table live in docs/models.md; the
+ * rules themselves are `src/catalog/merge.ts`. Every adapter reuses the
+ * family's own runtime parser, so the snapshot and the live picker read a
+ * source the same way. Keys are fetched concurrently (independent hosts and
+ * sessions); the report stays in catalog-key order.
+ */
+
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname, isAbsolute, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { assertCatalog, CATALOG_EFFORT_KEYS, CATALOG_KEYS } from '../lib/catalog/index.js'
+import { mergeCatalogRows } from '../lib/catalog/merge.js'
+import { CODEX_CONTEXT_WINDOW, CODEX_DEFAULT_MAX_TOKENS } from '../lib/oauth/codex/index.js'
+import { listStoredSessions } from '../lib/oauth/store.js'
+import { configureOutbound, outboundFetch, outboundProxyPath } from '../lib/utils/outbound.js'
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
+const CATALOG_PATH = join(ROOT, 'src/catalog/models.json')
+
+const args = { keys: [] as string[], write: false, prune: false, json: false, profile: 'desktop' }
+const argv = process.argv.slice(2)
+for (let i = 0; i < argv.length; i++) {
+  if (argv[i] === '--write') args.write = true
+  else if (argv[i] === '--prune') args.prune = true
+  else if (argv[i] === '--json') args.json = true
+  else if (argv[i] === '--profile') args.profile = argv[++i]
+  else args.keys.push(...argv[i].split(',').filter(Boolean))
+}
+
+const DATA_DIR = `${process.env.HOME}/.dsh/profiles/${args.profile}/data/dsh-plugin-oauth-subs`
+const AUTH = `${DATA_DIR}/auth.json`
+const TIMEOUT_MS = 30_000
+const DSH_LEVELS: readonly string[] = CATALOG_EFFORT_KEYS
+/** The only fields a catalog row may carry (docs/models.md 行格式). */
+const ROW_FIELDS = ['id', 'name', 'contextWindow', 'maxTokens', 'input', 'reasoningEfforts', 'maxContextWindow', 'fastTier', 'variants', 'defaultUid', 'compat', 'credits', 'rate', 'vendor']
+
+class Skip extends Error {}
+
+// ── helpers ───────────────────────────────────────────────────────────────
+
+async function session(provider) {
+  const rows = await listStoredSessions(provider, AUTH).catch(() => [])
+  if (!rows.length) throw new Skip(`no stored ${provider} account in profile ${args.profile}`)
+  const usable = rows.find((row) => row?.session?.expiresAt > Date.now() + 120_000)
+  if (!usable) throw new Skip(`every ${provider} token expires within 2 minutes; open the app to refresh it (this script never refreshes)`)
+  return usable.session
+}
+
+async function getJson(url, init: any = {}) {
+  const response = await outboundFetch(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) })
+  const text = await response.text()
+  if (!response.ok) throw new Error(`${init.method ?? 'GET'} ${url} → HTTP ${response.status}: ${text.slice(0, 200)}`)
+  return JSON.parse(text)
+}
+
+const pos = (value) => (typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined)
+const inputOf = (kinds) => (Array.isArray(kinds) ? ['text', 'image'].filter((kind) => kinds.includes(kind)) : undefined)
+
+/** Vendor effort spellings → DSH-keyed ladder (`none` → `off`), in DSH order. */
+function effortsOf(values, { offValue }: any = {}) {
+  if (!Array.isArray(values)) return undefined
+  const map: any = {}
+  for (const value of values) {
+    const key = value === 'none' ? 'off' : value
+    if (DSH_LEVELS.includes(key)) map[key] = key === 'off' && offValue !== undefined ? offValue : value
+  }
+  const ordered = Object.fromEntries(DSH_LEVELS.filter((key) => key in map).map((key) => [key, map[key]]))
+  return Object.keys(ordered).length ? ordered : false
+}
+
+function pick(row) {
+  return Object.fromEntries(ROW_FIELDS.filter((field) => row[field] !== undefined).map((field) => [field, row[field]]))
+}
+
+/**
+ * models.dev api.json, fetched once per run and shared by every adapter.
+ * Memoized as the in-flight promise, not the value: adapters run
+ * concurrently, so an awaited assignment would race several fetches into
+ * flight before the first one landed. A failed fetch unpins itself so a
+ * later key can retry instead of inheriting the rejection.
+ */
+let modelsDevFetch
+function modelsDevApi() {
+  modelsDevFetch ??= getJson('https://models.dev/api.json').catch((error) => {
+    modelsDevFetch = undefined
+    throw error
+  })
+  return modelsDevFetch
+}
+
+async function modelsDevBucket(bucket) {
+  const modelsDev = await modelsDevApi()
+  const models = modelsDev?.[bucket]?.models
+  if (!models) throw new Error(`models.dev has no "${bucket}" bucket`)
+  return models
+}
+
+/**
+ * Every models.dev bucket that lists a bare id — the hand-sourcing hints for
+ * `!` unresolved rows and `>` curated picks. Values are distilled to a
+ * majority vote across buckets (ties → the smaller window / shorter effort
+ * list), with how many buckets agree, so one line orients the hunt for a
+ * second source instead of flooding it with relay copies. Report-only;
+ * nothing here is written to the catalog.
+ */
+async function modelsDevHints(id) {
+  const modelsDev = await modelsDevApi()
+  const hits: any[] = []
+  for (const data of Object.values<any>(modelsDev)) {
+    const row = data?.models?.[id]
+    if (row) hits.push(row)
+  }
+  if (!hits.length) return []
+  const tallyNumber = (values) => {
+    const counts = new Map<number, number>()
+    for (const value of values) if (value !== undefined) counts.set(value, (counts.get(value) ?? 0) + 1)
+    let best: { value: number, count: number } | undefined
+    for (const [value, count] of counts) {
+      if (!best || count > best.count || (count === best.count && value < best.value)) best = { value, count }
+    }
+    return best
+  }
+  const context = tallyNumber(hits.map((row) => pos(row.limit?.context)))
+  const output = tallyNumber(hits.map((row) => pos(row.limit?.output)))
+  const effortLists = hits
+    .map((row) => (row.reasoning_options ?? []).find((option: any) => option?.type === 'effort')?.values)
+    .filter((values) => Array.isArray(values) && values.length)
+  const effort = (() => {
+    const counts = new Map<string, { list: string[], count: number }>()
+    for (const list of effortLists) {
+      const key = list.join(',')
+      const hit = counts.get(key) ?? { list, count: 0 }
+      hit.count += 1
+      counts.set(key, hit)
+    }
+    let best: { list: string[], count: number } | undefined
+    for (const hit of counts.values()) {
+      if (!best || hit.count > best.count || (hit.count === best.count && hit.list.length < best.list.length)) best = hit
+    }
+    return best
+  })()
+  const agreed = (count: number) => (hits.length > 1 ? ` (${count}/${hits.length})` : '')
+  const parts = [
+    context ? `context ${context.value}${agreed(context.count)}` : '',
+    output ? `output ${output.value}${agreed(output.count)}` : '',
+    effort ? `effort ${effort.list.join('/')}` : '',
+  ].filter(Boolean)
+  return parts.length ? [parts.join(', ')] : ['listed but no window/output values']
+}
+
+/** models.dev row → catalog fields (effort from `reasoning_options`). */
+function fromModelsDev(id, row) {
+  const effort = (row.reasoning_options ?? []).find((option) => option?.type === 'effort')
+  return {
+    id,
+    name: row.name,
+    contextWindow: pos(row.limit?.context),
+    maxTokens: pos(row.limit?.output),
+    input: inputOf(row.modalities?.input),
+    reasoningEfforts: effort ? effortsOf(effort.values) : false,
+  }
+}
+
+// ── ZCode provider config (glm parameters) ────────────────────────────────
+//
+// glm catalog parameters come from ZCode's own provider config
+// (zcode-builtin.json): the release zcode.z.ai names now, or the newest
+// revision an installed ZCode carries — the same resolution the ZCode client
+// runs (magpie packages/zcode remoteConfig / localConfig / zcodeConfig,
+// index.mjs:1241-1264). The config's window is the OFFICIAL maximum, so it
+// lands on maxContextWindow; the plan-gateway input cap the baseline
+// contextWindow pins (400K for 5.3 / Flash) is not in this file and stays
+// curated (glm/README.md 模型).
+
+const ZCODE_CLIENT_CONFIGS_URL = 'https://zcode.z.ai/api/v1/client/configs'
+
+/** zcode-builtin.json copies an installed ZCode may carry (upstream localConfig). */
+function zcodeLocalProviderConfigPaths() {
+  const files: string[] = []
+  // ~/.zcode/v2/setting.json can move the data dir (dataBaseDir); the file
+  // itself, and everything else about the sign-in, stays in the home folder.
+  let dataIn = process.env.HOME
+  try {
+    const value = JSON.parse(readFileSync(join(process.env.HOME, '.zcode/v2/setting.json'), 'utf8'))?.dataBaseDir
+    if (typeof value === 'string' && isAbsolute(value)) dataIn = value
+  } catch { /* no setting.json: the home folder is the data dir */ }
+  const walk = (dir: string, depth: number) => {
+    let entries
+    try { entries = readdirSync(dir, { withFileTypes: true }) } catch { return }
+    for (const entry of entries) {
+      if (depth < 3 && entry.isDirectory()) walk(join(dir, entry.name), depth + 1)
+      else if (depth === 3 && entry.name === 'zcode-builtin.json') files.push(join(dir, entry.name))
+    }
+  }
+  walk(join(dataIn, '.zcode', 'v2', 'runtime', 'provider'), 0)
+  if (process.platform === 'darwin') files.push('/Applications/ZCode.app/Contents/Resources/config/provider/zcode-builtin.json')
+  return files
+}
+
+/** The newest of the candidates by `revision` (upstream keeps the later one). */
+function newestZcodeProviderConfig(candidates: any[]) {
+  let best
+  for (const config of candidates) {
+    if (!config || typeof config !== 'object') continue
+    if (!best || (config.revision ?? 0) > (best.revision ?? 0)) best = config
+  }
+  return best
+}
+
+/**
+ * The newest zcode-builtin.json: what zcode.z.ai's client/configs names
+ * (fetched with the ZCode CLI UA, as upstream does), beside every installed
+ * copy — remote failure is tolerated, exactly as upstream's zcodeConfig
+ * tolerates it, and the local file only wins on a strictly later revision.
+ */
+async function zcodeProviderConfig(appVersion: string, userAgent: string) {
+  const remote = await (async () => {
+    // The client-configs answer is a {code, msg, data} envelope; the URL
+    // rides in data.configs (upstream call() unwraps the same).
+    const listed = await getJson(`${ZCODE_CLIENT_CONFIGS_URL}?app_version=${appVersion}&platform=${process.platform}-${process.arch}`)
+    const url = listed?.data?.configs?.builtin_provider_config_json
+    if (typeof url !== 'string' || !url.startsWith('https://')) throw new Error('zcode.z.ai names no provider config')
+    return getJson(url, { headers: { 'User-Agent': userAgent } })
+  })().catch(() => undefined)
+  const locals = zcodeLocalProviderConfigPaths().map((file) => {
+    try { return JSON.parse(readFileSync(file, 'utf8')) } catch { return undefined }
+  })
+  return newestZcodeProviderConfig([...(remote ? [remote] : []), ...locals])
+}
+
+/**
+ * config.modelConfigRules.modelRules keyed by regex: every rule whose
+ * `modelMatch` (anchored, case-insensitive — upstream compiles the same)
+ * covers an id applies, later matches overwriting earlier per field, exactly
+ * as upstream modelsOf folds a default rule under a specific one.
+ * `supportsImage` decides input kinds; reasoningLevel values arrive as the
+ * config spells them.
+ */
+function zcodeRuleMatcher(config) {
+  const rules = config?.config?.modelConfigRules?.modelRules
+  if (!Array.isArray(rules)) return undefined
+  const compiled: [RegExp, any][] = []
+  for (const rule of rules) {
+    if (typeof rule?.modelMatch !== 'string') continue
+    try { compiled.push([new RegExp(`^(?:${rule.modelMatch})$`, 'i'), rule.config ?? {}]) } catch { /* not a regex: skip, as upstream */ }
+  }
+  if (!compiled.length) return undefined
+  return (id) => {
+    let maxContextWindow
+    let maxTokens
+    let input
+    let efforts
+    for (const [match, cfg] of compiled) {
+      if (!match.test(id)) continue
+      const specs = cfg.optionSpecs ?? {}
+      const context = pos(cfg.properties?.contextWindow)
+      if (context !== undefined) maxContextWindow = context
+      const output = pos(specs.maxOutputTokens?.max)
+      if (output !== undefined) maxTokens = output
+      if (typeof cfg.properties?.inputFormat?.supportsImage === 'boolean') {
+        input = ['text', ...(cfg.properties.inputFormat.supportsImage ? ['image'] : [])]
+      }
+      if (Array.isArray(specs.reasoningLevel?.values) && specs.reasoningLevel.values.length) {
+        efforts = effortsOf(specs.reasoningLevel.values.map((v: string) => (v === 'disabled' ? 'none' : v === 'enabled' ? 'high' : v)))
+      }
+    }
+    if (maxContextWindow === undefined && maxTokens === undefined && input === undefined && efforts === undefined) return undefined
+    return { maxContextWindow, maxTokens, input, reasoningEfforts: efforts }
+  }
+}
+
+// ── one adapter per catalog key ───────────────────────────────────────────
+//
+// `fetch` returns rows normalized to catalog fields; a field the source does
+// not carry stays undefined (the merge keeps the catalog value). `keep` /
+// `skip` / `newRow` encode decisions recorded in the family README.
+
+const PLAIN_GO_COMPAT = { supportsStore: false, supportsDeveloperRole: false, maxTokensField: 'max_tokens' }
+
+// Official Go docs endpoint table (2026-10-08): these ids answer only on
+// /v1/messages. models.dev still tags them as completions, which would
+// mis-file them. opencode-go/README.md.
+const OPENCODE_GO_MESSAGES_IDS = new Set([
+  'claude-haiku-5-5', 'minimax-m3', 'minimax-m2.7', 'qwen3.8-max', 'qwen3.8-flash', 'qwen3.7-plus',
+])
+
+// Official Go docs endpoint table (2026-10-15): this id is /v1/models/<id>
+// (@ai-sdk/google), outside the DSH api union. models.dev still has metadata,
+// so without this skip the completions adapter would file it as a new row.
+const OPENCODE_GO_GOOGLE_IDS = new Set(['gemini-4-argon-contributor'])
+
+/** The single OpenCode API key in this profile's vault (Go and Zen share it). */
+function opencodeApiKey() {
+  const vault = JSON.parse(readFileSync(`${DATA_DIR}/opencode-go.json`, 'utf8'))
+  const key = Object.values<any>(vault.accounts ?? {}).find((entry) => entry?.apiKey)?.apiKey
+  if (!key) throw new Skip('no OpenCode API key in opencode-go.json (Go and Zen share it)')
+  return key
+}
+
+// ── OpenCode Zen ──────────────────────────────────────────────────────────
+//
+// Same vault key as Go, different origin (`/zen/v1`). The protocol split comes
+// from the official Zen docs endpoint table (2026-10-10,
+// https://opencode.ai/docs/zen/): `/v1/messages` = @ai-sdk/anthropic,
+// `/v1/responses` = @ai-sdk/openai, `/v1/chat/completions` =
+// @ai-sdk/openai-compatible. Two further table rows are not expressible on this
+// plugin's routes — `/v1/models/<id>` (@ai-sdk/google, the Gemini ids) and
+// `/v1/systemone` (Jev) — and never ship; the same goes for every free-tier
+// row (`*-free`, `big-pickle`), which the gateway refuses to a non-OpenCode
+// client with `403 FreeTierError`.
+const OPENCODE_ZEN_MESSAGES_IDS = new Set([
+  'claude-fable-5-1', 'claude-haiku-4-5', 'claude-haiku-5-5', 'claude-opus-5-5',
+  'claude-sonnet-5', 'claude-sonnet-5-5', 'qwen3.6-plus', 'qwen3.8-flash',
+])
+
+const OPENCODE_ZEN_RESPONSES_IDS = new Set([
+  'gpt-5.3-codex', 'gpt-5.3-codex-spark', 'gpt-5.4-mini', 'gpt-5.4-nano', 'gpt-5.5',
+  'gpt-5.5-pro', 'gpt-6-astra', 'gpt-6-sol', 'gpt-6.1-sol', 'gpt-6-luna',
+  'gpt-5.6-terra', 'grok-4.7', 'grok-build-0.1', 'muse-spark-1.3',
+])
+
+/** Ids the Zen docs put outside the three DSH-servable protocols. */
+const OPENCODE_ZEN_OTHER_PROTOCOL_IDS = new Set(['jev-1.13', 'jev-1.13-free'])
+
+/** Docs `/v1/models/<id>` rows (@ai-sdk/google): Gemini, not a chat protocol. */
+const OPENCODE_ZEN_GOOGLE_IDS = new Set([
+  'gemini-3-flash', 'gemini-3.1-pro', 'gemini-3.5-flash', 'gemini-3.5-flash-lite',
+  'gemini-3.6-flash', 'gemini-3.7-flash', 'gemini-3.8-flash', 'gemini-4-argon',
+])
+
+const OPENCODE_ZEN_FREE_IDS = new Set([
+  'big-pickle', 'ling-3.1-flash-free', 'mimo-v2.6-flash-free', 'mimo-v2.5-free',
+  'muse-spark-1.2-contributor-free', 'muse-spark-1.3-contributor-free',
+  'nemotron-3-ultra-free', 'nemotron-3.5-lightning-free', 'space-bunny-free',
+  'longcat-2.5-preview-free', 'step-5-preview-free', 'exo-free', 'ling-3.0-flash-fin-free',
+  'cat-jam-free', 'deepseek-v4.1-flash-free',
+  // 2026-10-17: live test on the stored key — POST /zen/v1/chat/completions
+  // answers 403 FreeTierError for all three, so the gateway refuses them
+  // outside OpenCode itself (opencode-go/README.md 模型).
+  'beam-free', 'nemotron-3.5-super-vl-free', 'glm-5.3-flash-free',
+])
+
+/**
+ * Go's completions view lists a free row the gateway refuses outside OpenCode
+ * (403 FreeTierError on the Zen surface, 2026-10-17) — same rule as Zen's
+ * free tier, and Go's own subscription gate hides it behind a 403 anyway.
+ */
+const OPENCODE_GO_FREE_IDS = new Set(['beam-free'])
+
+/**
+ * Maintainer pin 2026-10-10: the Zen docs price table splits these rows at
+ * 272K (`GPT 5.5 (≤ 272K tokens)` / `(> 272K tokens)`), the same
+ * default-tier shape Codex (258K) pins. The long-context
+ * path is unverifiable here (this account's Zen balance is $0), so the catalog
+ * reports the default tier and DSH compacts before it; see the family README
+ * and docs/error.md.
+ */
+const OPENCODE_ZEN_TIERED_WINDOW_IDS = new Set([
+  'gpt-5.5', 'gpt-5.6-terra', 'gpt-6-astra', 'gpt-6-sol', 'gpt-6.1-sol', 'gpt-6-luna',
+])
+
+const OPENCODE_ZEN_DEFAULT_WINDOW = 272_000
+
+async function opencodeZen(protocol) {
+  const key = opencodeApiKey()
+  const [live, dev] = await Promise.all([
+    getJson('https://opencode.ai/zen/v1/models', { headers: { authorization: `Bearer ${key}` } }),
+    modelsDevBucket('opencode'),
+  ])
+  const rows: any[] = []
+  for (const { id } of live.data ?? []) {
+    const messages = OPENCODE_ZEN_MESSAGES_IDS.has(id)
+    const responses = OPENCODE_ZEN_RESPONSES_IDS.has(id)
+    if (protocol === 'messages') {
+      if (!messages) continue
+    } else if (protocol === 'responses') {
+      if (!responses) continue
+    } else if (messages || responses) {
+      continue
+    }
+    const meta = dev[id]
+    const row: any = meta ? fromModelsDev(id, meta) : { id }
+    if (OPENCODE_ZEN_TIERED_WINDOW_IDS.has(id)) row.contextWindow = OPENCODE_ZEN_DEFAULT_WINDOW
+    rows.push(row)
+  }
+  return rows
+}
+
+async function opencodeGo(protocol) {
+  const key = opencodeApiKey()
+  const [live, dev] = await Promise.all([
+    getJson('https://opencode.ai/zen/go/v1/models', { headers: { authorization: `Bearer ${key}` } }),
+    modelsDevBucket('opencode-go'),
+  ])
+  const rows: any[] = []
+  for (const { id } of live.data ?? []) {
+    const meta = dev[id]
+    // models.dev marks the /responses-only rows with an @ai-sdk/openai provider.
+    // /messages ids are the docs table above — the bucket has not caught up.
+    const responses = meta?.provider?.npm === '@ai-sdk/openai'
+    const messages = OPENCODE_GO_MESSAGES_IDS.has(id)
+    if (protocol === 'messages') {
+      if (!messages) continue
+    } else if (messages || (protocol === 'responses') !== responses) {
+      continue
+    }
+    rows.push(meta ? fromModelsDev(id, meta) : { id })
+  }
+  return rows
+}
+
+const ADAPTERS: Record<string, any> = {
+  codex: {
+    source: 'GET chatgpt.com/backend-api/codex/models?client_version=<CODEX_CLIENT_VERSION>',
+    async fetch() {
+      const { CODEX_MODELS_URL, CODEX_CLIENT_VERSION, codexUpstreamHeaders } = await import('../lib/oauth/codex/index.js')
+      const body = await getJson(`${CODEX_MODELS_URL}?client_version=${CODEX_CLIENT_VERSION}`, { headers: codexUpstreamHeaders(await session('codex')) })
+      return (body.models ?? []).filter((m) => m.visibility === 'list').map((m) => ({
+        id: m.slug,
+        name: String(m.display_name ?? m.slug).replace(/(\d)-(?=[A-Za-z])/g, '$1 '),
+        input: inputOf(m.input_modalities),
+        // `minimal` and `ultra` 400 on the Responses API (codex/index.ts CODEX_REASONING).
+        reasoningEfforts: effortsOf((m.supported_reasoning_levels ?? []).map((level) => level.effort).filter((e) => e !== 'minimal' && e !== 'ultra').concat('none'), { offValue: null }),
+        maxContextWindow: pos(m.max_context_window) > pos(m.context_window) ? m.max_context_window : undefined,
+        fastTier: Array.isArray(m.service_tiers) ? m.service_tiers.some((tier) => tier?.id === 'priority') : undefined,
+      }))
+    },
+    // The source window is the raw 272K; rows carry the CLI's usable default.
+    newRow: (row) => ({ ...row, contextWindow: CODEX_CONTEXT_WINDOW, maxTokens: CODEX_DEFAULT_MAX_TOKENS }),
+  },
+  grok: {
+    source: 'GET cli-chat-proxy.grok.com/v1/models (grok CLI list)',
+    async fetch() {
+      const { GROK_MODELS_URL, grokUpstreamHeaders } = await import('../lib/oauth/grok/index.js')
+      const body = await getJson(GROK_MODELS_URL, { headers: grokUpstreamHeaders(await session('grok')) })
+      const rows: any[] = []
+      const notes: string[] = []
+      for (const m of body.data ?? []) {
+        // Only the Responses backend serves this hop (upstream packages/grok
+        // index.mjs:392 drops ids without one the same way).
+        if (!m?.id || (m.api_backend && m.api_backend !== 'responses')) continue
+        rows.push({
+          id: m.id,
+          name: m.name,
+          contextWindow: pos(m.context_window),
+          maxTokens: pos(m.max_completion_tokens),
+          reasoningEfforts: m.supports_reasoning_effort === false ? false : effortsOf((m.reasoning_efforts ?? []).map((e) => e.value)),
+        })
+        // Report-only: the extra windows the CLI offers (upstream makes each a
+        // `grok-4.7@500k` picker row). Variant rows stay uncollected — the
+        // 2026-09-29 ruling pins contextWindow to the non-Max-Mode base window
+        // (grok/README.md 模型); a human weighs changes from the report.
+        const windows = [...new Set((Array.isArray(m.context_windows) ? m.context_windows : []).map(Number).filter((n) => Number.isInteger(n) && n > 0))]
+        const variants = windows.filter((n) => n !== pos(m.context_window))
+        if (variants.length) notes.push(`${m.id}  context_windows ${windows.join('/')} beside the default ${pos(m.context_window)}; @window variant rows not collected`)
+      }
+      // The note bag rides to the run loop's report; none of it is a row field.
+      return Object.assign(rows, notes.length ? { notes } : {})
+    },
+  },
+  glm: {
+    source: 'GET <coding plan>/api/coding/paas/v4/models (ids) + zcode-builtin.json (parameters; newest revision of the zcode.z.ai release / installed ZCode copies)',
+    async fetch() {
+      const { GLM_APP_VERSION, GLM_CLI_USER_AGENT, glmCodingUrl, glmUpstreamHeaders } = await import('../lib/oauth/glm/index.js')
+      const s = await session('glm')
+      const body = await getJson(glmCodingUrl(s.region).replace(/\/chat\/completions$/, '/models'), { headers: glmUpstreamHeaders(s) })
+      // Parameters from ZCode's provider config; ids stay the plan
+      // endpoint's (the account's own truth). No config → id-only rows,
+      // the shape this adapter always had.
+      const matchRule = zcodeRuleMatcher(await zcodeProviderConfig(GLM_APP_VERSION, GLM_CLI_USER_AGENT).catch(() => undefined))
+      return (body.data ?? []).map((m) => {
+        const params = matchRule?.(String(m.id))
+        return {
+          id: m.id,
+          ...(params ?? {}),
+        }
+      })
+    },
+    // The plan gateway's input cap IS the official 1M window for these rows,
+    // so they hang no maxContextWindow (glm/README.md 模型); the config's
+    // official window must not add one.
+    keep: [
+      { ids: ['glm-5.3-flashx', 'glm-5-turbo'], fields: ['maxContextWindow'], why: 'maintainer pin 2026-10-10: the plan gateway cap equals the official window here, so the row hangs no maxContextWindow (glm/README.md 模型)' },
+    ],
+    // glm-5.3-flashx went live on the plan (2026-10-10 live test: served as
+    // itself, 948K input accepted) — parameters still need the second source
+    // (ZCode catalog rules match it; see glm/README.md 模型).
+    skip: [
+      { ids: ['glm-4.5', 'glm-4.5-air', 'glm-4.6', 'glm-4.7', 'glm-5', 'glm-5.1', 'glm-5.2'], why: 'historical id the plan reroutes to 5.3 / 5.3-Flash (glm/README.md 模型)' },
+    ],
+  },
+  kiro: {
+    source: 'management List-Available-Models, origin=KIRO_CONSOLE (governance list)',
+    async fetch() {
+      const { fetchKiroLiveModels, toKiroPickerModels } = await import('../lib/oauth/kiro/catalog.js')
+      const live = await fetchKiroLiveModels(await session('kiro'), { origin: 'KIRO_CONSOLE' })
+      if (!live.length) throw new Error('List-Available-Models returned nothing in every region')
+      return toKiroPickerModels(live).map(pick)
+    },
+  },
+  antigravity: {
+    source: 'CLIProxyAPI internal/registry/models/models.json → "antigravity" (public)',
+    async fetch() {
+      const body = await getJson('https://raw.githubusercontent.com/router-for-me/CLIProxyAPI/main/internal/registry/models/models.json')
+      // Mapping recorded in antigravity/README.md 模型: levels fold into the
+      // three-step Gemini ladder, Claude thinking is low/high, none is false.
+      return (body.antigravity ?? []).map((m) => ({
+        id: m.id,
+        name: String(m.display_name ?? m.id).replace(/\s*\((?:thinking|high|low|medium)\)\s*$/i, ''),
+        contextWindow: pos(m.context_length),
+        maxTokens: pos(m.max_completion_tokens),
+        input: inputOf(m.supportedInputModalities),
+        reasoningEfforts: !m.thinking ? false
+          : Array.isArray(m.thinking.levels) ? { low: 'low', medium: 'medium', high: 'high' }
+            : { low: 'low', high: 'high' },
+      }))
+    },
+    // 2026-10-14: the registry lists gemini-4-argon-high, but the live picker
+    // (fetchAvailableModels, same day) carries Argon only as
+    // gemini-4-argon-disabled with disabled: true — staged upstream, not a
+    // serviceable line id (antigravity/README.md 模型).
+    skip: [{ ids: ['gemini-4-argon-high'], why: 'staged upstream: live fetchAvailableModels only lists gemini-4-argon-disabled (disabled: true), 2026-10-14 (antigravity/README.md 模型)' }],
+  },
+  cursor: {
+    source: 'agent.v1 GetUsableModels + AvailableModels (egress-filtered)',
+    // The floor follows cursor.com/docs/models-and-pricing (cursor/README.md 模型);
+    // the live list also carries hidden / legacy ids, so new ids are report-only.
+    add: false,
+    async fetch() {
+      const { fetchCursorAvailableModels, fetchCursorUsableModels } = await import('../lib/oauth/cursor/h2-session.js')
+      const { toCursorPickerModels } = await import('../lib/oauth/cursor/catalog.js')
+      const s = await session('cursor')
+      const [usable, available] = await Promise.all([fetchCursorUsableModels(s), fetchCursorAvailableModels(s)])
+      const rows = toCursorPickerModels(usable, available)
+      if (!rows.length) throw new Error('GetUsableModels returned nothing')
+      // The static floor is family-only; `-fast` twins are grown at runtime.
+      const ids = new Set(rows.map((row) => row.id))
+      return rows.filter((row) => !(row.id.endsWith('-fast') && ids.has(row.id.slice(0, -5)))).map(pick)
+    },
+  },
+  kimi: {
+    source: 'GET api.kimi.com/coding/v1/models',
+    async fetch() {
+      const { KIMI_MODELS_URL, kimiUpstreamHeaders } = await import('../lib/oauth/kimi/index.js')
+      const { toKimiPickerModels } = await import('../lib/oauth/kimi/catalog.js')
+      const s = await session('kimi')
+      return toKimiPickerModels(await getJson(KIMI_MODELS_URL, { headers: { ...kimiUpstreamHeaders(s), accept: 'application/json' } })).map(pick)
+    },
+  },
+  devin: {
+    source: 'ApiServerService/GetCliModelConfigs',
+    async fetch() {
+      const { devinListModelConfigs, toDevinPickerModels } = await import('../lib/oauth/devin/catalog.js')
+      return toDevinPickerModels(await devinListModelConfigs(await session('devin'), { signal: AbortSignal.timeout(TIMEOUT_MS) })).map(pick)
+    },
+    skip: [{ ids: ['fusion', 'fusion-fast', 'fusion-thinking', 'fusion-thinking-fast'], why: 'maintainer block 2026-09-30: the Fusion family stays out of the picker (devin/README.md 模型)' }],
+  },
+  cline: {
+    source: 'GET api.cline.bot/api/v1/ai/cline/recommended-models + /ai/cline/models (public)',
+    async fetch() {
+      const { CLINE_MODELS_URL, CLINE_RECOMMENDED_MODELS_URL, clineIdentityHeaders } = await import('../lib/oauth/cline/index.js')
+      const { toClinePickerModels } = await import('../lib/oauth/cline/catalog.js')
+      const headers = clineIdentityHeaders()
+      const [feed, cloud] = await Promise.all([
+        getJson(CLINE_RECOMMENDED_MODELS_URL, { headers }),
+        getJson(CLINE_MODELS_URL, { headers }).catch(() => undefined),
+      ])
+      return toClinePickerModels(feed, { cloud }).map(pick)
+    },
+    // The cloud catalog gives two windows per model; the source puts the
+    // servable tier in top_provider (28 of 470 rows have it below
+    // context_length, none above), so a new row pins the small one and hangs
+    // the total on maxContextWindow (cline/README.md 模型, 2026-10-17).
+    newRow: (row) => (row.id === 'cline-free/nemotron-3.5-super-vl' ? { ...row, contextWindow: 262144, maxContextWindow: 1048576 } : row),
+    keep: [
+      { ids: ['cline-free/nemotron-3.5-super-vl'], fields: ['contextWindow'], why: 'maintainer pin 2026-10-17: the servable tier is top_provider.context_length 262144, not the 1048576 total (cline/README.md 模型)' },
+      { ids: ['cline-pass/deepseek-v4.1-flash'], fields: ['maxTokens'], why: 'upstream flaps 393216/943718 across days; pinned to the value models.dev openrouter also reports (cline/README.md 模型, 2026-10-17)' },
+      { ids: ['cline-pass/glm-5.3-flash'], fields: ['maxTokens'], why: 'upstream returns 131072 and 943718 interchangeably; pinned to the value models.dev cline-pass/zai report (cline/README.md 模型, 2026-10-17)' },
+    ],
+  },
+  ollama: {
+    source: 'GET ollama.com/api/tags + POST /api/show (public)',
+    async fetch() {
+      const { OLLAMA_TAGS_URL } = await import('../lib/apikey/ollama/index.js')
+      const { applyOllamaShowWindows, toOllamaPickerModels } = await import('../lib/apikey/ollama/catalog.js')
+      const rows = toOllamaPickerModels(await getJson(OLLAMA_TAGS_URL))
+      return (await applyOllamaShowWindows(rows, { fetchFn: outboundFetch, token: '', signal: AbortSignal.timeout(TIMEOUT_MS * 4) })).map(pick)
+    },
+    // 'clef:27b' answers /v1/systemone only — /v1/chat/completions and
+    // /api/chat both 400 "decision model", so it cannot back a picker row
+    // (ollama/README.md 模型, 2026-10-17).
+    skip: [{ ids: ['clef:27b'], why: 'decision model: /v1/chat/completions and /api/chat answer 400, only /v1/systemone is served (ollama/README.md)' }],
+  },
+  'opencode-go-flash': {
+    source: 'GET opencode.ai/zen/go/v1/models (ids) + models.dev "opencode-go" (metadata)',
+    fetch: () => opencodeGo('completions'),
+    skip: [
+      { ids: ['deepseek-flash'], why: 'alias of deepseek-v4.1-flash; the picker keeps the docs id (opencode-go/README.md)' },
+      { ids: [...OPENCODE_GO_MESSAGES_IDS], why: 'docs endpoint is /v1/messages; completions returns ModelProtocolUnsupported (opencode-go/README.md)' },
+      { ids: [...OPENCODE_GO_GOOGLE_IDS], why: 'docs endpoint is /v1/models/<id> (@ai-sdk/google), outside the DSH api union (opencode-go/README.md)' },
+      { ids: [...OPENCODE_GO_FREE_IDS], why: 'free tier: /zen/v1/chat/completions answers 403 FreeTierError outside OpenCode (opencode-go/README.md)' },
+      { ids: ['grok-4.6'], why: 'lives on /v1/responses; models.dev opencode-go dropped its metadata, so the completions view sees it as a new id (opencode-go/README.md)' },
+    ],
+    // DeepSeek dialect rows need a live test first (README); new rows start plain.
+    newRow: (row) => ({ ...row, compat: { ...PLAIN_GO_COMPAT } }),
+  },
+  'opencode-go-responses': {
+    source: 'GET opencode.ai/zen/go/v1/models (ids) + models.dev "opencode-go" (metadata)',
+    fetch: () => opencodeGo('responses'),
+    keep: [{ ids: ['gpt-5.6-luna', 'gpt-6-luna'], fields: ['contextWindow'], why: 'maintainer pin 2026-09-29: 258K default input tier, not the 1.05M total (opencode-go/README.md)' }],
+  },
+  'opencode-go-messages': {
+    source: 'GET opencode.ai/zen/go/v1/models (ids) + Go docs /v1/messages table + models.dev "opencode-go" (metadata)',
+    fetch: () => opencodeGo('messages'),
+  },
+  'opencode-zen-chat': {
+    source: 'GET opencode.ai/zen/v1/models (ids) + Zen docs /v1/chat/completions table + models.dev "opencode" (metadata)',
+    fetch: () => opencodeZen('chat'),
+    skip: [
+      { ids: [...OPENCODE_ZEN_FREE_IDS], why: 'free tier: gateway answers 403 FreeTierError outside OpenCode (opencode-go/README.md)' },
+      { ids: [...OPENCODE_ZEN_OTHER_PROTOCOL_IDS], why: 'docs endpoint is /v1/systemone, outside the DSH api union (opencode-go/README.md)' },
+      { ids: [...OPENCODE_ZEN_GOOGLE_IDS], why: 'docs endpoint is /v1/models/<id> (@ai-sdk/google), outside the DSH api union (opencode-go/README.md)' },
+      { ids: ['test'], why: 'not a model: the probe id present in the keyed list, absent from the docs table' },
+    ],
+    // DeepSeek dialect rows need a live test first (README); new rows start plain.
+    newRow: (row) => ({ ...row, compat: { ...PLAIN_GO_COMPAT } }),
+  },
+  'opencode-zen-responses': {
+    source: 'GET opencode.ai/zen/v1/models (ids) + Zen docs /v1/responses table + models.dev "opencode" (metadata)',
+    fetch: () => opencodeZen('responses'),
+    keep: [{ ids: [...OPENCODE_ZEN_TIERED_WINDOW_IDS], fields: ['contextWindow'], why: 'maintainer pin 2026-10-10: docs price tier starts above 272K (opencode-go/README.md)' }],
+  },
+  'opencode-zen-messages': {
+    source: 'GET opencode.ai/zen/v1/models (ids) + Zen docs /v1/messages table + models.dev "opencode" (metadata)',
+    fetch: () => opencodeZen('messages'),
+  },
+  chatgpt: {
+    source: 'GET api.openai.com/v1/models (Sign in with ChatGPT access token)',
+    async fetch() {
+      const { toChatgptPickerModels } = await import('../lib/oauth/chatgpt/catalog.js')
+      const { CHATGPT_MODELS_URL, chatgptUpstreamHeaders } = await import('../lib/oauth/chatgpt/index.js')
+      return toChatgptPickerModels(await getJson(CHATGPT_MODELS_URL, { headers: chatgptUpstreamHeaders(await session('chatgpt')) }))
+    },
+  },
+  'command-code': {
+    // The Provider API's model list, not the CLI's registry: it answers
+    // without a key and carries the vendor's own name/context_length (live
+    // 2026-10-10: 87 rows, identical ids to the pinned registry). Effort
+    // lists and image input stay the pinned registry's — the list says
+    // nothing about either, so a row it adds is written with what it says.
+    source: 'GET api.commandcode.ai/provider/v1/models (public)',
+    async fetch() {
+      const { COMMAND_CODE_MODELS, COMMAND_CODE_PROVIDER_MODELS_URL } = await import('../lib/apikey/command-code/index.js')
+      const { commandCodeProviderRows, commandCodeSourceModels } = await import('../lib/apikey/command-code/catalog.js')
+      const live = commandCodeProviderRows(await getJson(COMMAND_CODE_PROVIDER_MODELS_URL))
+      return commandCodeSourceModels(live).map(pick)
+    },
+  },
+  ollamaRetired: { manual: 'Ollama Cloud retirements table (ollama/README.md 模型); not a live list' },
+  // /v3/config answers anonymously for the personal plan's picker
+  // (live-verified 2026-10-17), so the floor reconciles against the live
+  // endpoint like every other sourced family; a signed-in enterprise account
+  // may see more rows — the login-time refresh's business
+  // (src/oauth/workbuddy/catalog.ts), not the floor's.
+  workbuddy: {
+    source: 'GET copilot.tencent.com/v3/config (cli agent, anonymous)',
+    async fetch() {
+      return workbuddyConfigRows('workbuddy')
+    },
+  },
+  'workbuddy-ai': {
+    source: 'GET www.workbuddy.ai/v3/config (cli agent, anonymous)',
+    async fetch() {
+      return workbuddyConfigRows('workbuddy-ai')
+    },
+  },
+  // The list has no anonymous view — it reads the logged-in work credential
+  // Bearer (upstream index.mjs:139) — so the probe re-reads the desktop file
+  // off the stored account reference, exactly like the hop does.
+  'kimi-work': {
+    source: 'GET agent-gw.kimi.com/coding/v1/models (work credential, logged-in)',
+    async fetch() {
+      const { KIMI_WORK_MODELS_URL, currentKimiWorkDesktop, kimiWorkJsonHeaders } = await import('../lib/oauth/kimi-work/index.js')
+      const { toKimiWorkPickerModels } = await import('../lib/oauth/kimi-work/catalog.js')
+      const read = currentKimiWorkDesktop(await session('kimi-work'))
+      return toKimiWorkPickerModels(await getJson(KIMI_WORK_MODELS_URL, { headers: { ...kimiWorkJsonHeaders(read.workToken), accept: 'application/json' } })).map(pick)
+    },
+  },
+  autoclaw: {
+    manual: 'AutoClaw 固定上游目录（magpie packages/autoclaw index.mjs overseasModels，实测存表；无 list 端点）——行维护在 src/catalog/models.json',
+  },
+  'autoclaw-cn': {
+    manual: 'AutoClaw CN managed 固定目录（同包 index.mjs managedModels；无 list 端点）——行维护在 src/catalog/models.json',
+  },
+  opendesign: {
+    source: 'GET amr-link.open-design.ai/v1/models (runtime key)',
+    async fetch() {
+      const { OPENDESIGN_MODELS_URL, opendesignUpstreamHeaders } = await import('../lib/oauth/opendesign/index.js')
+      const { toOpendesignPickerModels } = await import('../lib/oauth/opendesign/catalog.js')
+      const s = await session('opendesign')
+      // No .map(pick): the rows reach the merge whole, and ROW_FIELDS carries
+      // rate (and workbuddy's credits), so the report's pick keeps them too.
+      return toOpendesignPickerModels(await getJson(OPENDESIGN_MODELS_URL, { headers: { ...opendesignUpstreamHeaders(s), accept: 'application/json' } }))
+    },
+  },
+  // Xiaomi MiMo has no models endpoint to probe: the two rows are plugin
+  // constants from the upstream package's own table (magpie index.mjs:29-32),
+  // so the rows are maintained in src/catalog/models.json by hand.
+  mimo: {
+    manual: 'MiMo 固定上游目录（magpie packages/mimo index.mjs MODELS 常量；无 list 端点）——行维护在 src/catalog/models.json',
+  },
+  // Zed's /models takes the per-call model token (minted from the stored
+  // sign-in, re-minted once when Zed calls it stale) plus the x-ai support
+  // flag upstream sends (index.mjs:270-273); fetchZedModels is that whole
+  // chain, rows already vendor-filtered to what the hop serves.
+  zed: {
+    source: 'GET cloud.zed.dev/models (model token, x-ai flag)',
+    async fetch() {
+      const { fetchZedModels } = await import('../lib/oauth/zed/catalog.js')
+      return (await fetchZedModels(await session('zed'))).map(pick)
+    },
+  },
+}
+
+/** Both builds' /v3/config read through the family's own parser (catalog.ts). */
+async function workbuddyConfigRows(siteId) {
+  const wb = await import('../lib/oauth/workbuddy/index.js')
+  const { toWorkbuddyCatalogRows } = await import('../lib/oauth/workbuddy/catalog.js')
+  const site = wb.WORKBUDDY_SITES[siteId]
+  // The catalog probe's own header group (the engine owns the chat hop's).
+  const headers = {
+    authorization: 'Bearer catalog-probe',
+    'X-User-Id': '0',
+    'X-Domain': new URL(site.endpoint).host,
+    'X-Product': 'SaaS',
+    'X-IDE-Type': 'WorkBuddy',
+    'X-IDE-Name': 'WorkBuddy',
+    'X-IDE-Version': wb.WORKBUDDY_UA_VERSION,
+    'X-Agent-Purpose': 'conversation',
+    'X-Agent-Intent': 'craft',
+    'X-Requested-With': 'XMLHttpRequest',
+    ...(site.ai ? { 'X-Agent-Type': 'main' } : {}),
+    'User-Agent': wb.WORKBUDDY_CLI_USER_AGENT,
+    Accept: 'application/json',
+  }
+  const response = await outboundFetch(wb.workbuddyConfigUrl(site), { headers, signal: AbortSignal.timeout(TIMEOUT_MS) })
+  const envelope = await response.json().catch(() => ({}))
+  if (!response.ok || envelope.code) throw new Error(`${site.name} config: HTTP ${response.status} code ${envelope.code ?? 0}`)
+  return toWorkbuddyCatalogRows(site, envelope)
+}
+
+// ── run ───────────────────────────────────────────────────────────────────
+
+/**
+ * Some transports unref their sockets (the Cursor h2 pool), which lets Node
+ * exit mid-request with nothing else scheduled; the ref'd timer holds the loop
+ * and doubles as the per-key deadline.
+ */
+function withDeadline(work, key) {
+  let timer
+  const deadline = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`${key} source timed out after ${TIMEOUT_MS * 4}ms`)), TIMEOUT_MS * 4) })
+  return Promise.race([work, deadline]).finally(() => clearTimeout(timer))
+}
+
+const unknown = args.keys.filter((key) => !CATALOG_KEYS.includes(key))
+if (unknown.length) {
+  console.error(`unknown catalog key(s): ${unknown.join(', ')}\nkeys: ${CATALOG_KEYS.join(', ')}`)
+  process.exit(2)
+}
+const keys = args.keys.length ? args.keys : [...CATALOG_KEYS]
+const outbound = configureOutbound({ path: outboundProxyPath(DATA_DIR), env: process.env })
+const catalog = JSON.parse(readFileSync(CATALOG_PATH, 'utf8'))
+
+// Every key in flight at once: each adapter reads its own session and talks to
+// its own host, so the run waits on the slowest key instead of the sum of all
+// of them. Per-key deadline, merge, and failure isolation are unchanged, and
+// the report below stays in catalog-key order whatever order the fetches
+// settle in.
+const settled = new Map<string, any>()
+await Promise.all(keys.map(async (key) => {
+  const adapter = ADAPTERS[key]
+  if (!adapter || adapter.manual) {
+    settled.set(key, { key, status: 'manual', detail: adapter?.manual ?? 'no adapter' })
+    return
+  }
+  try {
+    const source = await withDeadline(adapter.fetch(), key)
+    const result = mergeCatalogRows(catalog[key], source, { keep: adapter.keep, skip: adapter.skip, add: adapter.add, prune: args.prune, newRow: adapter.newRow })
+    catalog[key] = result.rows
+    // A fetch may attach a report-only `notes` bag to its rows array (grok's
+    // context_windows); it reaches both report shapes below, never a catalog row.
+    settled.set(key, { key, status: 'ok', source: adapter.source, offered: source.length, ...result, ...(source.notes ? { notes: source.notes } : {}), rows: undefined })
+  } catch (error) {
+    settled.set(key, { key, status: error instanceof Skip ? 'skipped' : 'failed', detail: error?.message ?? String(error) })
+  }
+}))
+const report: any[] = keys.map((key) => settled.get(key))
+
+// Hand-sourcing hints (report-only): what models.dev knows about the ids this
+// run leaves to a human — `!` unresolved rows, and `>` curated picks that are
+// genuinely new (the curated report-only list repeats every run; ids the
+// catalog already carries need no second source). A source is offered, never
+// written. Runs before the outbound agent closes.
+const hintIds = [...new Set(report.flatMap((r) => [
+  ...(r.unresolved ?? []).map((row) => row.id),
+  ...(r.notAdded ?? []).filter((row) => !(catalog[r.key] ?? []).some((kept) => kept.id === row.id)).map((row) => row.id),
+]))]
+const hints: Record<string, string[]> = {}
+let hintError: string | undefined
+if (hintIds.length) {
+  try {
+    for (const id of hintIds) hints[id] = await modelsDevHints(id)
+  } catch (error) {
+    hintError = error?.message ?? String(error)
+  }
+}
+
+await outbound.close()
+
+const dirty = report.some((r) => r.status === 'ok' && (r.added.length || r.changed.length || r.removed.length))
+if (args.write && dirty) {
+  assertCatalog(catalog)
+  writeFileSync(CATALOG_PATH, `${JSON.stringify(catalog, null, 2)}\n`)
+}
+
+if (args.json) {
+  console.log(JSON.stringify({ written: args.write && dirty, hints, ...(hintError ? { hintError } : {}), report }, null, 2))
+} else {
+  const brief = (value) => JSON.stringify(value) ?? 'undefined'
+  for (const r of report) {
+    if (r.status !== 'ok') {
+      console.log(`${r.status.toUpperCase().padEnd(7)} ${r.key}  ${r.detail}`)
+      continue
+    }
+    const counts = [`+${r.added.length}`, `~${r.changed.length}`, `-${r.removed.length}`, `missing ${r.missing.length}`].join(' ')
+    console.log(`OK      ${r.key}  ${counts}  (${r.offered} from ${r.source})`)
+    for (const row of r.added) console.log(`  + ${row.id}  ${brief(pick(row))}`)
+    for (const c of r.changed) console.log(`  ~ ${c.id}.${c.field}  ${brief(c.from)} → ${brief(c.to)}`)
+    for (const c of r.kept) console.log(`  = ${c.id}.${c.field}  source ${brief(c.to)} kept ${brief(c.from)}: ${c.why}`)
+    for (const id of r.missing) console.log(`  ${r.removed.includes(id) ? '-' : '?'} ${id}  not in source${r.removed.includes(id) ? ' (pruned)' : ''}`)
+    for (const row of r.unresolved) console.log(`  ! ${row.id}  new id without metadata; add by hand with a README source`)
+    if (r.notAdded.length) console.log(`  > not added (curated key): ${r.notAdded.map((row) => row.id).join(', ')}`)
+    for (const s of r.skipped) console.log(`  · ${s.id}  skipped: ${s.why}`)
+    for (const note of r.notes ?? []) console.log(`  w ${note}`)
+    for (const id of [...r.unresolved.map((row) => row.id), ...r.notAdded.map((row) => row.id)]) {
+      if (hintError) break
+      const hits = hints[id] ?? []
+      console.log(`  i ${id}  models.dev: ${hits.length ? hits.join(' · ') : 'no bucket lists this id'}`)
+    }
+  }
+  if (hintError) console.log(`  i models.dev hints unavailable: ${hintError}`)
+  console.log(args.write ? (dirty ? `\nwrote ${CATALOG_PATH}; run npm run build, then record sources in each family README` : '\nnothing to write') : '\ndry run; pass --write to apply')
+}
+process.exit(report.some((r) => r.status === 'failed') ? 1 : 0)

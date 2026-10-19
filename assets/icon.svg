@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="OAuth Subs">
+  <defs>
+    <linearGradient id="osubs-tile" x1="10" y1="6" x2="54" y2="58" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4C77FF"/>
+      <stop offset="1" stop-color="#1B3BB8"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="15" fill="url(#osubs-tile)"/>
+  <!-- One bold subject: a key for the stored credential. No thin decoration, so it
+       still reads as a key in a 20px plugin row. -->
+  <g transform="rotate(-45 32 32)">
+    <circle cx="32" cy="19.5" r="10" fill="none" stroke="#FFFFFF" stroke-width="6.5"/>
+    <path d="M32 29.5v25" fill="none" stroke="#FFFFFF" stroke-width="6.5" stroke-linecap="round"/>
+    <path d="M32 43.5h8.5" fill="none" stroke="#FFFFFF" stroke-width="6.5" stroke-linecap="round"/>
+    <path d="M32 51.5h6" fill="none" stroke="#FFFFFF" stroke-width="6.5" stroke-linecap="round"/>
+  </g>
+</svg>

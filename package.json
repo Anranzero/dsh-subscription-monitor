@@ -1,0 +1,96 @@
+{
+  "name": "dsh-plugin-oauth-subs",
+  "version": "0.0.124",
+  "description": "ChatGPT (Codex + Sign-in-with-ChatGPT), xAI Grok, Zhipu GLM, AWS Kiro, Google Antigravity, Cursor, Ollama Cloud, Kimi Code Plan, Devin, Cline, Command Code, and OpenCode Go subscription OAuth / API keys for DeepSeek Harness — PKCE / device-code / Google login, local proxy, llm-pi-ai sync.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.6.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xxww0098/dsh-plugin-oauth-subs.git"
+  },
+  "bugs": {
+    "url": "https://github.com/xxww0098/dsh-plugin-oauth-subs/issues"
+  },
+  "homepage": "https://github.com/xxww0098/dsh-plugin-oauth-subs#readme",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/ui/client.js",
+    "./analyze-session": "./lib/utils/analyze-session.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./assets/icon.svg",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar"
+      ],
+      "external": [
+        "@deepseek-ai/dsh-client-ui-primitives"
+      ]
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "files": [
+    "lib",
+    "assets",
+    "locale",
+    "scripts",
+    "cordis.patch.yml",
+    "AGENTS.md",
+    "README.md",
+    "README.zh.md"
+  ],
+  "scripts": {
+    "build": "tsc && node --experimental-strip-types scripts/ui-bundle.ts && tsc -p tsconfig.ui.json",
+    "dev-build": "npm run build && node --experimental-strip-types scripts/dev-build.ts",
+    "dev": "node --experimental-strip-types scripts/dev-watch.ts",
+    "test": "npm run build && node --experimental-strip-types --test 'test/*.test.ts'",
+    "typecheck": "node --experimental-strip-types scripts/typecheck-ratchet.ts",
+    "analyze": "node --experimental-strip-types scripts/analyze-session.ts",
+    "live": "node --experimental-strip-types scripts/live-smoke.ts",
+    "models": "node --experimental-strip-types scripts/models.ts",
+    "rates": "node --experimental-strip-types scripts/rates.ts",
+    "prepublishOnly": "npm test"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh-plugin",
+    "oauth",
+    "chatgpt",
+    "codex",
+    "grok",
+    "xai",
+    "glm",
+    "kiro",
+    "pkce",
+    "antigravity",
+    "google",
+    "cursor",
+    "kimi",
+    "devin",
+    "cline",
+    "ollama",
+    "command-code",
+    "opencode-go"
+  ],
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.1",
+    "undici": "^7.30.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "typescript": "^5.9.3"
+  }
+}

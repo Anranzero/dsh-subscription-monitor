@@ -1,0 +1,589 @@
+#!/usr/bin/env node
+/**
+ * Live smoke test: real stored login → the real proxy → the vendor.
+ *
+ *   node --experimental-strip-types scripts/live-smoke.ts <family>[,<family>] [--profile desktop] [--account N] [--timeout 90]
+ *
+ * Read-only by construction: it reads `auth.json` through `listStoredSessions`,
+ * never refreshes a token (an account that expires within 2 minutes is skipped),
+ * never writes the store, and every request carries a timeout. Requests are tiny
+ * but they are real — they spend a little of the account's quota.
+ *
+ * Add a family by adding one entry to CHECKS. Exit code 1 if any check FAILs.
+ * Two outcomes are not failures and say so: BLOCKED (the vendor refused the
+ * account itself — suspended, out of credits — so the code under test never
+ * ran) and SKIP (the account has nothing to test, e.g. no model with an
+ * effort ladder). Both print their reason; neither hides behind a green run.
+ */
+
+import { readFile } from 'node:fs/promises'
+import { deflateSync } from 'node:zlib'
+import { createProxy } from '../lib/oauth/proxy.js'
+import { listStoredSessions } from '../lib/oauth/store.js'
+
+const args = { families: [] as string[], profile: 'desktop', account: null as number | null, timeoutMs: 90_000 }
+const argv = process.argv.slice(2)
+for (let i = 0; i < argv.length; i++) {
+  if (argv[i] === '--profile') args.profile = argv[++i]
+  else if (argv[i] === '--account') args.account = Number(argv[++i])
+  else if (argv[i] === '--timeout') args.timeoutMs = Number(argv[++i]) * 1000
+  else args.families.push(...argv[i].split(','))
+}
+
+const AUTH = `${process.env.HOME}/.dsh/profiles/${args.profile}/data/dsh-plugin-oauth-subs/auth.json`
+const KEY = 'live-smoke'
+
+/** First stored session that will not expire mid-run (or the one `--account` names). */
+async function pickSession(family) {
+  const rows = await listStoredSessions(family, AUTH)
+  const usable = (row) => row?.session?.expiresAt > Date.now() + 120_000
+  const row = args.account != null ? rows[args.account] : rows.find(usable)
+  if (!row) throw new Error(`no stored ${family} account`)
+  if (!usable(row)) throw new Error(`${family} account expires within 2 minutes; live smoke never refreshes`)
+  return row.session
+}
+
+function png(width, height, [r, g, b]) {
+  const table = Array.from({ length: 256 }, (_, n) => {
+    let c = n
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
+    return c >>> 0
+  })
+  const crc = (buf) => {
+    let c = 0xffffffff
+    for (const byte of buf) c = table[(c ^ byte) & 0xff] ^ (c >>> 8)
+    return (c ^ 0xffffffff) >>> 0
+  }
+  const chunk = (type, data) => {
+    const len = Buffer.alloc(4)
+    len.writeUInt32BE(data.length)
+    const body = Buffer.concat([Buffer.from(type), data])
+    const sum = Buffer.alloc(4)
+    sum.writeUInt32BE(crc(body))
+    return Buffer.concat([len, body, sum])
+  }
+  const ihdr = Buffer.alloc(13)
+  ihdr.writeUInt32BE(width, 0)
+  ihdr.writeUInt32BE(height, 4)
+  ihdr[8] = 8
+  ihdr[9] = 2
+  const row = Buffer.concat([Buffer.from([0]), Buffer.from(Array.from({ length: width }, () => [r, g, b]).flat())])
+  const raw = Buffer.concat(Array.from({ length: height }, () => row))
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]).toString('base64')
+}
+
+/** One non-streaming chat call through the proxy. */
+function chatClient(base, family, refusals: string[] = []) {
+  return async (body) => {
+    const t0 = Date.now()
+    const res = await fetch(`${base}/${family}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${KEY}`, 'content-type': 'application/json' },
+      signal: AbortSignal.timeout(args.timeoutMs),
+      body: JSON.stringify({ stream: false, ...body }),
+    })
+    const text = await res.text()
+    let json: any = null
+    try { json = JSON.parse(text) } catch { /* error bodies may be plain text */ }
+    const message = json?.choices?.[0]?.message
+    if (res.status !== 200) refusals.push(text.slice(0, 400))
+    return { status: res.status, ms: Date.now() - t0, message, text: String(message?.content ?? ''), raw: json ?? text.slice(0, 300) }
+  }
+}
+
+const pass = (detail) => ({ ok: true, detail })
+const fail = (detail) => ({ ok: false, detail })
+const skip = (detail) => ({ ok: true, skipped: true, detail })
+const ms = (r) => `${(r.ms / 1000).toFixed(1)}s`
+
+// ── Cursor ────────────────────────────────────────────────────────────────
+
+const CURSOR_MODEL = 'claude-sonnet-5-5'
+
+const cursor = {
+  // Cursor reads AI-SDK JSON messages from the root blobs, not protobuf turns:
+  // losing history shows up as "no code word in this conversation".
+  async memory(chat) {
+    const word = `PELICAN-${Math.floor(1000 + Math.random() * 9000)}`
+    const first = [{ role: 'user', content: `Remember the code word ${word}. Reply with OK only.` }]
+    const one = await chat({ model: CURSOR_MODEL, messages: first })
+    if (one.status !== 200) return fail(`turn 1 HTTP ${one.status} ${JSON.stringify(one.raw)}`)
+    const two = await chat({ model: CURSOR_MODEL, messages: [...first, { role: 'assistant', content: one.text }, { role: 'user', content: 'What was the code word? Answer with the word only.' }] })
+    return two.text.includes(word) ? pass(`recalled ${word} (${ms(two)})`) : fail(`expected ${word}, got ${JSON.stringify(two.text || two.raw).slice(0, 120)}`)
+  },
+  // Parallel MCP calls arrive one by one before the step checkpoint; returning
+  // on the first one used to drop the rest.
+  async parallelTools(chat) {
+    const fn = (name, description) => ({ type: 'function', function: { name, description, parameters: { type: 'object', properties: { city: { type: 'string' } }, required: ['city'] } } })
+    const tools = [fn('get_weather', 'Weather for a city'), fn('get_time', 'Local time for a city')]
+    const messages: any[] = [{ role: 'user', content: 'Call get_weather for Paris AND get_time for Tokyo, both now in one step. After you have both results, answer in one sentence that mentions both cities.' }]
+    const one = await chat({ model: CURSOR_MODEL, tools, messages })
+    const calls = one.message?.tool_calls ?? []
+    if (calls.length < 2) return fail(`expected 2 parallel tool calls, got ${calls.length} (${JSON.stringify(one.raw).slice(0, 160)})`)
+    const results = calls.map((call) => ({ role: 'tool', tool_call_id: call.id, content: call.function.name === 'get_weather' ? '{"city":"Paris","temp_c":17,"sky":"rain"}' : '{"city":"Tokyo","time":"21:05"}' }))
+    const two = await chat({ model: CURSOR_MODEL, tools, messages: [...messages, { role: 'assistant', content: one.message?.content ?? '', tool_calls: calls }, ...results] })
+    return /paris/i.test(two.text) && /tokyo/i.test(two.text) ? pass(`${calls.length} calls, then answered (${ms(one)} + ${ms(two)})`) : fail(`final answer missed a city: ${JSON.stringify(two.text || two.raw).slice(0, 160)}`)
+  },
+  async image(chat) {
+    const ask = async (color) => (await chat({ model: CURSOR_MODEL, messages: [{ role: 'user', content: [{ type: 'text', text: 'What single color fills this image? One lowercase word.' }, { type: 'image_url', image_url: { url: `data:image/png;base64,${png(64, 64, color)}` } }] }] })).text
+    const [red, blue] = [await ask([220, 20, 20]), await ask([20, 20, 220])]
+    return /red/i.test(red) && /blue/i.test(blue) ? pass('red → red, blue → blue') : fail(`red → ${JSON.stringify(red)}, blue → ${JSON.stringify(blue)}`)
+  },
+}
+
+// ── Kiro ──────────────────────────────────────────────────────────────────
+
+const LOW = ['off', 'minimal', 'low']
+const HIGH = ['max', 'xhigh', 'high']
+
+const kiro = {
+  async image(chat, ctx) {
+    const row = ctx.models.find((m) => m.input?.includes('image') && /haiku/i.test(m.id)) ?? ctx.models.find((m) => m.input?.includes('image'))
+    if (!row) return fail('no image-capable model in the live catalog')
+    const ask = async (color) => (await chat({ model: row.id, messages: [{ role: 'user', content: [{ type: 'text', text: 'What single color fills this image? One lowercase word.' }, { type: 'image_url', image_url: { url: `data:image/png;base64,${png(64, 64, color)}` } }] }] })).text
+    const [red, blue] = [await ask([220, 20, 20]), await ask([20, 20, 220])]
+    return /red/i.test(red) && /blue/i.test(blue) ? pass(`${row.id}: red → red, blue → blue`) : fail(`${row.id}: red → ${JSON.stringify(red)}, blue → ${JSON.stringify(blue)}`)
+  },
+  // additionalModelRequestFields is a closed schema: a wrong shape is a 400,
+  // and a dropped field silently runs the default tier.
+  async effort(chat, ctx) {
+    const row = ctx.models.find((m) => m.reasoningEfforts && LOW.some((k) => m.reasoningEfforts[k]) && HIGH.some((k) => m.reasoningEfforts[k]))
+    if (!row) return skip('no model in this account\'s live catalog has both a low and a high effort tier')
+    const wire = (keys) => row.reasoningEfforts[keys.find((k) => row.reasoningEfforts[k])]
+    const q = 'How many ordered pairs of non-negative integers (x, y) satisfy x^2 + y^2 = 2025? List them and verify each.'
+    const low = await chat({ model: row.id, reasoning_effort: wire(LOW), messages: [{ role: 'user', content: q }] })
+    const high = await chat({ model: row.id, reasoning_effort: wire(HIGH), messages: [{ role: 'user', content: q }] })
+    const detail = `${row.id}: ${wire(LOW)} ${ms(low)}, ${wire(HIGH)} ${ms(high)}`
+    return low.status === 200 && high.status === 200 ? pass(detail) : fail(`${detail}; HTTP ${low.status}/${high.status} ${JSON.stringify(low.status === 200 ? high.raw : low.raw)}`)
+  },
+}
+
+const haiku = (ctx) => ctx.models.find((m) => /haiku/i.test(m.id))?.id ?? ctx.models.find((m) => /^claude-/.test(m.id))?.id
+
+Object.assign(kiro, {
+  // A request that carries tool_use / tool_result history but offers no tools
+  // (a compaction or summary call) is a Bedrock 400 unless the history rides as text.
+  async toolHistoryWithoutTools(chat, ctx) {
+    const model = haiku(ctx)
+    if (!model) return fail('no Claude model in the live catalog')
+    const messages = [
+      { role: 'user', content: 'Call read_file for a.ts, then reply DONE.' },
+      { role: 'assistant', content: '', tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'read_file', arguments: '{"path":"a.ts"}' } }] },
+      { role: 'tool', tool_call_id: 'call_1', content: 'const a = 1' },
+      { role: 'user', content: 'Summarise what happened in one sentence.' },
+    ]
+    const r = await chat({ model, messages })
+    return r.status === 200 && r.text ? pass(`${model}: ${JSON.stringify(r.text.slice(0, 60))} (${ms(r)})`) : fail(`HTTP ${r.status} ${JSON.stringify(r.raw).slice(0, 200)}`)
+  },
+  // A tool with no parameters streams no argument text; the host needs a JSON object.
+  async noArgTool(chat, ctx) {
+    const model = haiku(ctx)
+    if (!model) return fail('no Claude model in the live catalog')
+    const tools = [{ type: 'function', function: { name: 'git_status', description: 'Show git status', parameters: { type: 'object', properties: {} } } }]
+    const res = await fetch(`${ctx.base}/kiro/v1/chat/completions`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${KEY}`, 'content-type': 'application/json' },
+      signal: AbortSignal.timeout(args.timeoutMs),
+      body: JSON.stringify({ model, stream: true, tools, messages: [{ role: 'user', content: 'Call git_status now.' }] }),
+    })
+    const streamed = await res.text()
+    if (res.status !== 200) ctx.refusals?.push(streamed.slice(0, 400))
+    const deltas = streamed.split('\n').filter((line) => line.startsWith('data: {')).flatMap((line) => JSON.parse(line.slice(6)).choices?.[0]?.delta?.tool_calls ?? [])
+    const text = deltas.map((call) => call.function?.arguments ?? '').join('')
+    try {
+      return deltas.length && typeof JSON.parse(text) === 'object' ? pass(`arguments ${JSON.stringify(text)}`) : fail(`no tool call: ${res.status}`)
+    } catch {
+      return fail(`arguments are not JSON: ${JSON.stringify(text)}`)
+    }
+  },
+})
+
+// ── Devin ─────────────────────────────────────────────────────────────────
+
+const devin = {
+  // Usage buckets must arrive OpenAI-style: prompt_tokens is the whole
+  // prompt (uncached + cache read + write), so the host's
+  // prompt_tokens − cached − write recovers the uncached input. The old
+  // mapping sent the bare exclusive count, clamping warm calls to 0 input.
+  // Devin's prefix cache commits async — a run with no hit still passes on
+  // turn 1's usage; only a whole-prompt violation (prompt < cached) fails.
+  async usageBuckets(chat) {
+    const key = `live-smoke-devin-${Date.now().toString(36)}`
+    const filler = Array.from({ length: 160 }, (_, i) => `context line ${i} ${'x'.repeat(60)}`).join('\n')
+    const messages: any[] = [{ role: 'user', content: `Reply with the single word PONG.\n${filler}` }]
+    const one = await chat({ model: 'swe-2', max_tokens: 256, prompt_cache_key: key, messages })
+    if (one.status !== 200) return fail(`turn 1 HTTP ${one.status} ${JSON.stringify(one.raw).slice(0, 160)}`)
+    const first = one.raw?.usage
+    if (!first?.prompt_tokens) return fail(`no usage on turn 1: ${JSON.stringify(one.raw).slice(0, 160)}`)
+    messages.push({ role: 'assistant', content: one.text || 'PONG' }, { role: 'user', content: 'Reply PONG again.' })
+    const two = await chat({ model: 'swe-2', max_tokens: 256, prompt_cache_key: key, messages })
+    const usage = two.status === 200 && two.raw?.usage ? two.raw.usage : first
+    const cached = usage.prompt_tokens_details?.cached_tokens ?? 0
+    const write = usage.prompt_tokens_details?.cache_write_tokens ?? 0
+    if (usage.prompt_tokens < cached) return fail(`prompt_tokens ${usage.prompt_tokens} < cached ${cached} — exclusive mapping is back`)
+    const which = two.status === 200 && two.raw?.usage ? 'turn2' : 'turn1 (turn2 HTTP ' + two.status + ')'
+    return pass(`${which}: prompt ${usage.prompt_tokens} · cached ${cached} · write ${write} · uncached ${usage.prompt_tokens - cached - write}`)
+  },
+}
+
+// ── Ping (every other family) ─────────────────────────────────────────────
+//
+// One tiny real turn per family through the real proxy: proves the stored
+// login, the route, the upstream hop and the reply path end to end. The
+// model is each family's cheapest picker row; it must still be in the
+// catalog, so a retired id fails with that reason instead of a vendor 400.
+
+const CATALOG = JSON.parse(await readFile(new URL('../lib/catalog/models.json', import.meta.url), 'utf8'))
+const PING_PROMPT = 'Reply with the single word PONG.'
+
+/** A refusal that is about the account's state, not this code. */
+const ACCOUNT_BLOCKED = /suspended|banned|deactivated|account.{0,30}locked|usage limit reached|insufficient (?:credits|balance|funds)/i
+
+function pingModel(family, model) {
+  const rows = CATALOG[family] ?? []
+  return rows.some((row) => (typeof row === 'string' ? row : row.id) === model) ? undefined : `${model} is not in the ${family} catalog any more`
+}
+
+function pingResult(label, status, text, raw) {
+  if (status === 200 && text.trim()) return pass(`${label}: ${JSON.stringify(text.trim().slice(0, 40))}`)
+  return fail(`${label}: HTTP ${status} ${JSON.stringify(raw).slice(0, 220)}`)
+}
+
+/** Completions families: one non-streaming chat turn. */
+function pingChat(family, model) {
+  return {
+    async ping(chat) {
+      const gone = pingModel(family, model)
+      if (gone) return fail(gone)
+      const r = await chat({ model, messages: [{ role: 'user', content: PING_PROMPT }] })
+      return pingResult(`${model} (${ms(r)})`, r.status, r.text, r.raw)
+    },
+  }
+}
+
+/** Responses families: a streaming turn, read off the SSE events. */
+function pingResponses(family, model) {
+  return {
+    async ping(_chat, ctx) {
+      const gone = pingModel(family, model)
+      if (gone) return fail(gone)
+      const t0 = Date.now()
+      const res = await fetch(`${ctx.base}/${family}/v1/responses`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${KEY}`, 'content-type': 'application/json' },
+        signal: AbortSignal.timeout(args.timeoutMs),
+        body: JSON.stringify({ model, stream: true, store: false, instructions: 'You are a terse assistant.', input: [{ role: 'user', content: [{ type: 'input_text', text: PING_PROMPT }] }] }),
+      })
+      const body = await res.text()
+      const events = body.split('\n').filter((line) => line.startsWith('data: {')).map((line) => { try { return JSON.parse(line.slice(6)) } catch { return {} } })
+      const text = events.filter((event) => event.type === 'response.output_text.delta').map((event) => event.delta ?? '').join('')
+      const failed = events.find((event) => event.type === 'response.failed' || event.type === 'error')
+      const done = events.some((event) => event.type === 'response.completed')
+      const label = `${model} (${((Date.now() - t0) / 1000).toFixed(1)}s)`
+      if (res.status === 200 && done && !failed) return pingResult(label, 200, text || '(no text delta)', body.slice(0, 220))
+      return pingResult(label, failed ? 502 : res.status, '', failed ?? body.slice(0, 220))
+    },
+  }
+}
+
+/**
+ * Families whose quota rides the standard setup({ session, fetchQuota })
+ * wiring: one check that runs the family's own reader and leaves the card's
+ * shape to `describe` — each family's rows differ (meters with percents,
+ * credit balances, plan-only reads), so only the try/fail seam is shared.
+ */
+function quotaCheck(describe) {
+  return {
+    async quota(_chat, ctx) {
+      if (!ctx.fetchQuota) return fail('no quota reader wired for this family')
+      try {
+        return describe(await ctx.fetchQuota(ctx.session))
+      } catch (error) {
+        return fail(`quota threw ${error?.name ?? 'Error'}: ${error?.message ?? error}`)
+      }
+    },
+  }
+}
+
+/** AutoClaw's usage read is balance 制: credit totals only — no used percent (engine fetchQuota). */
+function autoclawChecks(family) {
+  return {
+    ...pingChat(family, 'zai_glm-5.3-flash'),
+    ...quotaCheck((q) => {
+      const row = q?.rows?.[0]
+      if (!row || typeof row.total !== 'number') return fail('credits read shape: ' + JSON.stringify(q).slice(0, 160))
+      return pass(`${row.product}: ${row.total} ${row.unit ?? 'credits'} (balance, no usage percent)`)
+    }),
+  }
+}
+
+/** WorkBuddy refuses a non-stream chat (400 code 11101), so its ping streams. */
+function pingWorkbuddyStream(family, model) {
+  return {
+    async ping(_chat, ctx) {
+      const gone = pingModel(family, model)
+      if (gone) return fail(gone)
+      const t0 = Date.now()
+      const res = await fetch(`${ctx.base}/${family}/v1/chat/completions`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${KEY}`, 'content-type': 'application/json' },
+        signal: AbortSignal.timeout(args.timeoutMs),
+        body: JSON.stringify({ model, stream: true, messages: [{ role: 'user', content: PING_PROMPT }] }),
+      })
+      const body = await res.text()
+      if (res.status !== 200) ctx.refusals?.push(body.slice(0, 400))
+      const events = body.split('\n').filter((line) => line.startsWith('data: {')).map((line) => { try { return JSON.parse(line.slice(6)) } catch { return {} } })
+      const text = events.flatMap((event) => event.choices?.[0]?.delta?.content ?? []).join('')
+      const label = `${model} (${((Date.now() - t0) / 1000).toFixed(1)}s)`
+      return pingResult(label, res.status, text, body.slice(0, 220))
+    },
+    // The terminal usage frame must arrive OpenAI-shaped: prompt cache hit
+    // counts folded into prompt_tokens_details.cached_tokens (mapWorkbuddyUsage).
+    async usage(_chat, ctx) {
+      const res = await fetch(`${ctx.base}/${family}/v1/chat/completions`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${KEY}`, 'content-type': 'application/json' },
+        signal: AbortSignal.timeout(args.timeoutMs),
+        body: JSON.stringify({ model, stream: true, messages: [{ role: 'user', content: PING_PROMPT }] }),
+      })
+      const body = await res.text()
+      if (res.status !== 200) ctx.refusals?.push(body.slice(0, 400))
+      const usage = body.split('\n').filter((line) => line.startsWith('data: {')).map((line) => { try { return JSON.parse(line.slice(6)) } catch { return {} } }).find((event) => event.usage)
+      if (!usage) return res.status === 200 ? fail('no usage frame on the SSE tail') : fail(`HTTP ${res.status} ${body.slice(0, 200)}`)
+      const u = usage.usage
+      const cached = u.prompt_tokens_details?.cached_tokens ?? 'absent'
+      return typeof u.prompt_tokens === 'number' ? pass(`prompt ${u.prompt_tokens} · cached ${cached} · credit ${u.credit ?? 'absent'}`) : fail(`usage shape: ${JSON.stringify(u).slice(0, 160)}`)
+    },
+    // The meter is a separate POST without the /v2 prefix, so it never rides the
+    // chat route: call the family module with the same session the proxy holds.
+    async quota(_chat, ctx) {
+      if (!ctx.fetchQuota) return fail('no quota reader wired for this build')
+      try {
+        const q = await ctx.fetchQuota(ctx.session)
+        const row = q?.rows?.[0]
+        if (!row) return fail('meter returned no rows: ' + JSON.stringify(q).slice(0, 160))
+        if (typeof row.total !== 'number' || typeof row.usedPercent !== 'number') {
+          return fail('meter row shape: ' + JSON.stringify(row).slice(0, 160))
+        }
+        return pass(String(q.planType ?? '?') + ' · ' + row.product + ': ' + row.usedPercent + '% of ' + row.total + ' ' + row.unit)
+      } catch (error) {
+        return fail(`meter threw ${error?.name ?? 'Error'}: ${error?.message ?? error}`)
+      }
+    },
+  }
+}
+
+// ── Zed ────────────────────────────────────────────────────────────────────
+
+/**
+ * One account, three wires: each route speaks its own api shape (anthropic
+ * messages, Responses, Completions), so each wire gets its own PONG turn.
+ * Zed always streams upstream but the hop re-frames per wire; a non-stream
+ * ask is read off the JSON body.
+ */
+const zed = {
+  async anthropic(_chat, ctx) {
+    const gone = pingModel('zed', 'claude-sonnet-5')
+    if (gone) return fail(gone)
+    const t0 = Date.now()
+    const res = await fetch(`${ctx.base}/zed/v1/messages`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${KEY}`, 'content-type': 'application/json' },
+      signal: AbortSignal.timeout(args.timeoutMs),
+      body: JSON.stringify({ model: 'claude-sonnet-5', max_tokens: 64, messages: [{ role: 'user', content: PING_PROMPT }] }),
+    })
+    const body = await res.text()
+    if (res.status !== 200) ctx.refusals?.push(body.slice(0, 400))
+    let json: any = null
+    try { json = JSON.parse(body) } catch { /* error bodies may be plain text */ }
+    const text = Array.isArray(json?.content) ? json.content.map((block: any) => block?.text ?? '').join('') : ''
+    return pingResult(`claude-sonnet-5 (${((Date.now() - t0) / 1000).toFixed(1)}s)`, res.status, text, json ?? body.slice(0, 220))
+  },
+  async responses(_chat, ctx) {
+    const gone = pingModel('zed', 'gpt-5.5')
+    if (gone) return fail(gone)
+    const t0 = Date.now()
+    const res = await fetch(`${ctx.base}/zed/v1/responses`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${KEY}`, 'content-type': 'application/json' },
+      signal: AbortSignal.timeout(args.timeoutMs),
+      body: JSON.stringify({ model: 'gpt-5.5', stream: false, instructions: 'You are a terse assistant.', input: [{ role: 'user', content: [{ type: 'input_text', text: PING_PROMPT }] }] }),
+    })
+    const body = await res.text()
+    if (res.status !== 200) ctx.refusals?.push(body.slice(0, 400))
+    let json: any = null
+    try { json = JSON.parse(body) } catch { /* error bodies may be plain text */ }
+    const text = (json?.output ?? []).flatMap((part: any) => part?.content ?? []).map((block: any) => block?.text ?? '').join('')
+    return pingResult(`gpt-5.5 (${((Date.now() - t0) / 1000).toFixed(1)}s)`, res.status, text, json ?? body.slice(0, 220))
+  },
+  async chat(chat) {
+    const gone = pingModel('zed', 'grok-4.7')
+    if (gone) return fail(gone)
+    const r = await chat({ model: 'grok-4.7', messages: [{ role: 'user', content: PING_PROMPT }] })
+    return pingResult(`grok-4.7 (${ms(r)})`, r.status, r.text, r.raw)
+  },
+  // No window meter on a route: the plan comes from the users/me reader the
+  // quota store already uses — assert it names a plan at all.
+  async quota(_chat, ctx) {
+    if (!ctx.fetchQuota) return fail('no quota reader wired for this build')
+    try {
+      const q = await ctx.fetchQuota(ctx.session)
+      return q?.planType ? pass(String(q.planType)) : fail('quota shape: ' + JSON.stringify(q).slice(0, 160))
+    } catch (error) {
+      return fail(`quota threw ${error?.name ?? 'Error'}: ${error?.message ?? error}`)
+    }
+  },
+}
+
+const CHECKS = {
+  workbuddy: {
+    checks: pingWorkbuddyStream('workbuddy', 'deepseek-v4.1-flash'),
+    async setup(session) {
+      const { fetchWorkbuddyQuotaEngine } = await import('../lib/oauth/workbuddy/engine.js')
+      return { session, fetchQuota: fetchWorkbuddyQuotaEngine }
+    },
+  },
+  'workbuddy-ai': {
+    checks: pingWorkbuddyStream('workbuddy-ai', 'fast-model'),
+    async setup(session) {
+      const { fetchWorkbuddyAiQuotaEngine } = await import('../lib/oauth/workbuddy/engine.js')
+      return { session, fetchQuota: fetchWorkbuddyAiQuotaEngine }
+    },
+  },
+  codex: { checks: pingResponses('codex', 'gpt-5.6-luna') },
+  chatgpt: { checks: pingResponses('chatgpt', 'gpt-5.6-luna') },
+  grok: { checks: pingResponses('grok', 'grok-4.7-build-fast') },
+  glm: { checks: pingChat('glm', 'glm-5.3-flash') },
+  antigravity: { checks: pingChat('antigravity', 'gemini-3.1-flash-lite') },
+  cline: { checks: pingChat('cline', 'cline-free/solar-mini4') },
+  ollama: { checks: pingChat('ollama', 'gpt-oss:20b') },
+  'command-code': { checks: pingChat('command-code', 'deepseek/deepseek-v4.1-flash') },
+  cursor: { checks: { ...cursor, ...pingChat('cursor', 'composer-2.5') } },
+  devin: { checks: devin },
+  kiro: {
+    checks: kiro,
+    async setup(session) {
+      const { refreshKiroCatalog } = await import('../lib/oauth/kiro/catalog.js')
+      return { models: await refreshKiroCatalog(session) }
+    },
+  },
+  zed: {
+    checks: zed,
+    async setup(session) {
+      const { fetchZedQuotaEngine } = await import('../lib/oauth/zed/engine.js')
+      return { session, fetchQuota: fetchZedQuotaEngine }
+    },
+  },
+  // The membership read is one shared-allowance window: used 0-100, no plan
+  // name, no invented reset (engine fetchQuota). k2d8-preview is the lighter
+  // of the two rows.
+  'kimi-work': {
+    checks: {
+      ...pingChat('kimi-work', 'k2d8-preview'),
+      ...quotaCheck((q) => {
+        const row = q?.rows?.[0]
+        if (!row) return fail('membership read returned no rows: ' + JSON.stringify(q).slice(0, 160))
+        return typeof row.usedPercent === 'number' ? pass(`${row.product}: ${row.usedPercent}% used`) : fail('membership row shape: ' + JSON.stringify(row).slice(0, 160))
+      }),
+    },
+    async setup(session) {
+      const { fetchKimiWorkQuota } = await import('../lib/oauth/kimi-work/engine.js')
+      return { session, fetchQuota: fetchKimiWorkQuota }
+    },
+  },
+  autoclaw: {
+    checks: autoclawChecks('autoclaw'),
+    async setup(session) {
+      const { fetchAutoclawQuotaEngine } = await import('../lib/oauth/autoclaw/engine.js')
+      return { session, fetchQuota: fetchAutoclawQuotaEngine }
+    },
+  },
+  'autoclaw-cn': {
+    checks: autoclawChecks('autoclaw-cn'),
+    async setup(session) {
+      const { fetchAutoclawCnQuotaEngine } = await import('../lib/oauth/autoclaw/engine.js')
+      return { session, fetchQuota: fetchAutoclawCnQuotaEngine }
+    },
+  },
+  // A pasted-key session has no control key: the quota read answers empty
+  // rows by design — SKIP, not FAIL (engine fetchQuota). The ping row is the
+  // cheapest flash tier on the chat wire (rate x0.5).
+  opendesign: {
+    checks: {
+      ...pingChat('opendesign', 'deepseek-v4.1-flash'),
+      ...quotaCheck((q) => {
+        if (!Array.isArray(q?.rows)) return fail('quota shape: ' + JSON.stringify(q).slice(0, 160))
+        if (!q.rows.length) return skip('no control key on this session — the control plane takes no API key')
+        const window = q.rows.find((row) => typeof row.usedPercent === 'number')
+        const wallet = q.rows.find((row) => row.key === 'wallet')
+        if (!window && !wallet) return fail('quota rows carry neither a window nor a wallet: ' + JSON.stringify(q).slice(0, 160))
+        return pass([q.planType ?? '?', window ? `${window.usedPercent}% used` : undefined, wallet ? `wallet $${wallet.remaining}` : undefined].filter(Boolean).join(' · '))
+      }),
+    },
+    async setup(session) {
+      const { fetchOpendesignQuotaEngine } = await import('../lib/oauth/opendesign/engine.js')
+      return { session, fetchQuota: fetchOpendesignQuotaEngine }
+    },
+  },
+  // A free or token-plan account keeps planType with no week row — the plan
+  // alone still proves the pages read (quota.ts fetchMimoQuota).
+  mimo: {
+    checks: {
+      ...pingChat('mimo', 'mimo-flash'),
+      ...quotaCheck((q) => {
+        if (!q?.planType) return fail('quota shape: ' + JSON.stringify(q).slice(0, 160))
+        const week = (q.rows ?? []).find((row) => row?.key === 'week')
+        return pass(week ? `${q.planType} · week ${week.usedPercent}% used` : String(q.planType))
+      }),
+    },
+    async setup(session) {
+      const { fetchMimoQuota } = await import('../lib/oauth/mimo/quota.js')
+      return { session, fetchQuota: fetchMimoQuota }
+    },
+  },
+}
+
+if (!args.families.length || args.families.some((family) => !CHECKS[family])) {
+  console.error(`usage: node --experimental-strip-types scripts/live-smoke.ts <${Object.keys(CHECKS).join('|')}>[,…] [--profile desktop] [--account N] [--timeout 90]`)
+  process.exit(2)
+}
+
+let failed = 0
+let blocked = 0
+for (const family of args.families) {
+  const { checks, setup } = CHECKS[family]
+  let session
+  let proxy
+  try {
+    session = await pickSession(family)
+    const ctx = setup ? await setup(session) : {}
+    proxy = createProxy({ port: 0, apiKey: KEY, tokens: { [family]: { session: async () => session } } })
+    const server = await proxy.listen()
+    const base = `http://127.0.0.1:${server.address().port}`
+    const refusals: string[] = []
+    const chat = chatClient(base, family, refusals)
+    ctx.base = base
+    ctx.refusals = refusals
+    for (const [name, run] of Object.entries<any>(checks)) {
+      refusals.length = 0
+      const result = await run(chat, ctx).catch((error) => fail(`threw ${error?.name ?? 'Error'}: ${error?.message ?? error}`))
+      // A failed check whose upstream refusal is about the account never ran
+      // the code under test: report it as BLOCKED with the vendor's reason.
+      const blocker = !result.ok ? refusals.find((text) => ACCOUNT_BLOCKED.test(text)) : undefined
+      if (blocker) {
+        blocked += 1
+        console.log(`BLOCKED  ${family}/${name}  account refused: ${blocker.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, '<id>').replace(/\s+/g, ' ').slice(0, 200)}`)
+        continue
+      }
+      if (!result.ok) failed += 1
+      console.log(`${result.skipped ? 'SKIP' : result.ok ? 'PASS' : 'FAIL'}  ${family}/${name}  ${result.detail}`)
+    }
+  } catch (error) {
+    failed += 1
+    console.log(`FAIL  ${family}  ${error?.message ?? error}`)
+  } finally {
+    await proxy?.close()
+  }
+}
+if (blocked) console.log(`\n${blocked} check(s) BLOCKED by the account, not by this code — fix the account and rerun.`)
+process.exit(failed ? 1 : 0)

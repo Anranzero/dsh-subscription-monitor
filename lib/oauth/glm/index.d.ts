@@ -1,0 +1,403 @@
+/**
+ * Zhipu GLM Coding Plan OAuth — two providers, same ZCode CLI poll.
+ *
+ * Z.ai (global) and BigModel (China) are the two buttons on ZCode's welcome
+ * screen. CLI init provider ids are `zai` and `bigmodel` (`zcode` 500s).
+ *
+ *   1. POST zcode.z.ai/api/v1/oauth/cli/init  { provider: "zai"|"bigmodel" }
+ *   2. Open data.authorize_url, poll /oauth/cli/poll/{flow_id}
+ *   3. Mint id.secret (the Coding Plan chat bearer) in both regions:
+ *      Z.ai exchanges the OAuth token via POST api.z.ai/api/auth/z/login;
+ *      BigModel's biz/keys APIs take the OAuth token itself (z/login there
+ *      rejects the poll token with 「z.ai用户信息异常」). The OAuth token is
+ *      kept as `oauthAccess` for userinfo/identity.
+ *
+ * Chat default is Anthropic Messages (`/api/anthropic/v1/messages`, ZCode
+ * Desktop). Completions leftover (`/api/coding/paas/v4/chat/completions`)
+ * stays until the next llm-pi-ai sync. Not chatgpt.com.
+ */
+import { outboundFetch } from '../../utils/outbound.js';
+export declare const GLM_CLIENT_ID = "client_P8X5CMWmlaRO9gyO-KSqtg";
+export declare const GLM_CLI_INIT_URL = "https://zcode.z.ai/api/v1/oauth/cli/init";
+export declare const GLM_CLI_POLL_URL = "https://zcode.z.ai/api/v1/oauth/cli/poll";
+export declare const GLM_AUTHORIZE_URL = "https://chat.z.ai/api/oauth/authorize";
+export declare const GLM_BUSINESS_LOGIN_URL = "https://api.z.ai/api/auth/z/login";
+export declare const GLM_BIZ_BASE = "https://api.z.ai";
+export declare const GLM_CODING_URL = "https://api.z.ai/api/coding/paas/v4/chat/completions";
+/**
+ * Official Coding Plan model gateway. ZCode never posts the Coding Plan
+ * Anthropic endpoint directly: `createOfficialCodingPlanGatewayFetch`
+ * (apps/zcode-cli/packages/adapters/src/model/official-coding-plan-gateway.ts)
+ * rewrites the endpoint to this origin and keeps method, body, query and every
+ * header except `host`. NOTICE.md「官方 Coding Plan 模型网关转发」says the
+ * gateway runs plan-entitlement checks before forwarding to the model service.
+ */
+export declare const GLM_GATEWAY_ORIGIN = "https://zcode.z.ai";
+export declare const GLM_GATEWAY_ANTHROPIC_PATHS: Readonly<{
+    zai: "/api/v1/ultra-zai/anthropic/v1/messages";
+    bigmodel: "/api/v1/ultra/anthropic/v1/messages";
+}>;
+/** Direct upstreams. Kept as the fallback when the gateway refuses the key. */
+export declare const GLM_ANTHROPIC_DIRECT_URLS: Readonly<{
+    zai: "https://api.z.ai/api/anthropic/v1/messages";
+    bigmodel: "https://open.bigmodel.cn/api/anthropic/v1/messages";
+}>;
+export declare const GLM_ANTHROPIC_URL: "https://api.z.ai/api/anthropic/v1/messages";
+export declare const GLM_ANTHROPIC_VERSION = "2023-06-01";
+export declare const GLM_QUOTA_URL = "https://api.z.ai/api/monitor/usage/quota/limit";
+export declare const GLM_TOOL_USAGE_URL = "https://api.z.ai/api/monitor/usage/tool-usage";
+export declare const GLM_USERINFO_URL = "https://chat.z.ai/api/oauth/userinfo";
+export declare const GLM_BIGMODEL_USERINFO_URL = "https://open.bigmodel.cn/api/biz/customer/getCustomerInfo";
+export declare const GLM_KEY_NAME = "dsh-plugin-oauth-subs";
+/** CLI / site ids. Never show these as the account name on the card. Opaque poll `user.id` is `isGlmOpaqueAccount`. */
+export declare const GLM_APP_ACCOUNTS: readonly string[];
+/** Official ZCode Desktop, latest stable (https://zcode.z.ai/en/changelog). */
+export declare const GLM_APP_VERSION = "3.14.3";
+/** Desktop UA from resources/glm/zcode.cjs (`eao`/`rao`). Do not leak this plugin. */
+export declare const GLM_USER_AGENT = "ZCode/3.14.3 ai-sdk/anthropic/3.0.81";
+/** CLI poll against zcode.z.ai — official CLI shape, not Desktop, not this plugin. */
+export declare const GLM_CLI_USER_AGENT = "ZCode/3.14.3";
+export declare const GLM_REFERER = "https://zcode.z.ai";
+/** ZCode CLI source title (`Z Code@cli`) / Desktop (`Z Code@electron`). */
+export declare const GLM_TITLE = "Z Code@electron";
+export declare const GLM_AGENT = "glm";
+/** resolveRuntimeZCodeEnv default (`ZCODE_ENV` unset) is production. */
+export declare const GLM_RELEASE_CHANNEL = "production";
+export declare const GLM_NEVER_EXPIRES = 8640000000000000;
+export declare const GLM_CLI_PROVIDERS: Readonly<{
+    zai: "zai";
+    bigmodel: "bigmodel";
+}>;
+/**
+ * Coding Plan catalog shown in Settings. GLM-5.3 and GLM-5-Turbo are text;
+ * GLM-5.3-Flash / GLM-5.3-FlashX are the natively multimodal models
+ * (image + text; ZCode's VLM flash rule matches both). Official Flash also
+ * takes video/file; llm-pi-ai / pi-ai only wire `text` and `image`.
+ *
+ * The plan's live model policy per `docs.z.ai/devpack/overview` is
+ * 「所有套餐均支持 GLM-5.3、GLM-5.3-Flash」 (the page has not picked up
+ * FlashX yet), and legacy ids auto-route (GLM-5.2 / 5.1 → 5.3,
+ * GLM-4.7 → 5.3-Flash). `glm-5.3-flashx` went live on the plan after that
+ * page was written — 2026-10-10 live test: the plan `/models` endpoint lists
+ * it and a chat request is served as `glm-5.3-flashx` itself (no reroute).
+ * GLM-5.2 stays retired: a `thinking.type: disabled` sent to a backend that
+ * routes it to 5.3 would 400 (5.3 is forced-on). Turbo keeps its own row
+ * because ZCode's `builtinProviderModelRules` still enables it; its 64k
+ * output cap comes from `modelRules` (Turbo 200k / 64k vs the 5.3 line
+ * 1M / 128k).
+ *
+ * Thinking depth is declared here so the Harness session picker can
+ * offer it. `false` means no depth control (Turbo); omitting `off`
+ * means thinking cannot be disabled (the 5.3 line).
+ *
+ * 5.3 / Flash rows sit at the plan's 400K input cap with the official 1M
+ * window as `maxContextWindow` — the row's custom-context ceiling
+ * (`maxContextOfRow`); see `src/utils/context-mode.ts`. FlashX is the
+ * exception: the plan gateway accepts its full 1M window (2026-10-10 live
+ * test, 948K input 200 / 1.4M rejected), so its baseline is 1M and it needs
+ * no `maxContextWindow` of its own.
+ */
+export declare const GLM_MODELS: readonly any[];
+/** Catalog lookup for the custom-context ceiling (`maxContextWindowOf`). */
+export declare function glmModel(modelId: any): any;
+export declare const GLM_PLAN_NAMES: Readonly<{
+    lite: "Lite";
+    pro: "Pro";
+    max: "Max";
+    coding_lite: "Lite";
+    coding_pro: "Pro";
+    coding_max: "Max";
+    individual: "Individual";
+    team: "Team";
+}>;
+export declare function normalizeGlmRegion(value: any): "zai" | "bigmodel";
+export declare function glmCliProvider(region: any): "zai" | "bigmodel";
+export declare function glmPlanLabel(raw: any): any;
+export declare function glmCodingUrl(region?: string): "https://api.z.ai/api/coding/paas/v4/chat/completions" | "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions";
+/** Direct Coding Plan Anthropic endpoint (what the gateway forwards to). */
+export declare function glmAnthropicDirectUrl(region?: string): "https://api.z.ai/api/anthropic/v1/messages" | "https://open.bigmodel.cn/api/anthropic/v1/messages";
+/** Official ZCode hop: the Coding Plan endpoint rewritten to the platform gateway. */
+export declare function glmAnthropicGatewayUrl(region?: string): string;
+/** ZCode default protocol. https://docs.z.ai/devpack/quick-start */
+export declare function glmAnthropicUrl(region?: string): string;
+export declare function glmQuotaUrl(region?: string): "https://api.z.ai/api/monitor/usage/quota/limit" | "https://open.bigmodel.cn/api/monitor/usage/quota/limit";
+/** Team seat windows: the monitor quota with type=2 (magpie zhipuTeamWindows / buildQuotaLimitUrl). */
+export declare function glmTeamQuotaUrl(region?: string): string;
+export declare function glmToolUsageUrl(region?: string): "https://api.z.ai/api/monitor/usage/tool-usage" | "https://open.bigmodel.cn/api/monitor/usage/tool-usage";
+/**
+ * Official ZCode MCP quota endpoint (usage-stats.ts fetchMcpQuotaSnapshot).
+ * Always the zcode.z.ai platform gateway — api.z.ai / open.bigmodel.cn answer
+ * 404. It needs BOTH the zcode JWT (authorization) and the provisioned
+ * Coding Plan api-key (X-Bigmodel-Authorization), plus Bigmodel-Target-Type.
+ */
+export declare const GLM_MCP_USAGE_URL = "https://zcode.z.ai/api/v1/mcp/usage";
+export declare function glmMcpUsageUrl(): string;
+/**
+ * Coding Plan Reset Cards (「重置卡」): `GET …/list?targetType=PERSONAL`
+ * reports banked cards in two buckets (`fiveHourResets` / `weekResets`);
+ * `POST …/use` redeems one. Same biz host as userinfo, same provisioned
+ * api-key bearer as the monitor quota. Not in the ZCode open-source tree —
+ * reference is OmniRoute `open-sse/services/usage/glmResetCards.ts`
+ * (241e63b), list live-checked on a BigModel Max account.
+ */
+export declare const GLM_RESET_CARD_TARGET_TYPE = "PERSONAL";
+export declare function glmResetCardUrl(region?: string, action?: 'list' | 'use', targetType?: string): string;
+export declare const GLM_TEAM_KEY_NAME = "zcode-team-api-key";
+export declare const GLM_TEAM_KEY_TYPE = 2;
+/** projectType 2 is a team Coding Plan project (isBigModelTeamCodingPlanProject). */
+export declare function glmProjectIsTeam(project: any): boolean;
+/** The account's team Coding Plan projects, org+project pairs. */
+export declare function glmTeamProjects(customer: any): any[];
+/** Headers the team business/usage endpoints are asked with besides Authorization (createBigModelUsageHeaders). */
+export declare function glmTeamHeaders(region: string | undefined, org: any, project: any): {
+    'Bigmodel-Organization': any;
+    'Bigmodel-Project': any;
+    'Set-Language': string;
+    'Accept-Language': string;
+};
+/** A team seat is usable when the plan is EFFECTIVE and the member's grant VALID. */
+export declare function glmTeamDetailUsable(detail: any): boolean;
+/** Why a seat is not usable: 'unassigned' (ask the admin) or 'expired' (the team's plan ran out). */
+export declare function glmTeamSeatState(detail: any): "unassigned" | "expired" | undefined;
+/** Team plan times (zcodeWhen + zhipuTime): unix seconds/milliseconds, or a zone-less stamp — Beijing on BigModel, UTC on Z.ai. */
+export declare function glmTeamStamp(value: any, region?: string): number | undefined;
+/** Seat detail as querySubscribeDetail tells it (envelope-unwrap happens here). */
+export declare function fetchGlmTeamDetail(bizToken: any, { fetchFn, region, org, project }?: any): Promise<{
+    hasSubscription: any;
+    status: string | undefined;
+    memberGrantStatus: string | undefined;
+    productName: string | undefined;
+    subscribeEndTime: any;
+}>;
+/**
+ * The card stamps (`expireTime` / `last*ResetTime`) carry no zone.
+ * BigModel's are Asia/Shanghai: `lastWeekResetTime` equals the weekly
+ * window's `nextResetTime` − 7d only at +08:00. Z.ai is read as UTC
+ * (OmniRoute's reading, not live-checked here).
+ */
+export declare function glmResetStampOffsetMinutes(region?: string): number;
+export declare function glmUserinfoUrl(region?: string): "https://chat.z.ai/api/oauth/userinfo" | "https://open.bigmodel.cn/api/biz/customer/getCustomerInfo";
+export declare function isGlmAppAccount(value: any): boolean;
+/**
+ * Site ids, poll `user.id`, JWT `sub` / numeric uid, and similar opaque Zhipu
+ * handles. Never a Settings card title. Emails and formatted phones pass.
+ */
+export declare function isGlmOpaqueAccount(value: any): boolean;
+export declare function pickGlmHumanAccount(...candidates: any[]): string | undefined;
+export declare function accountFromJwt(token: any): string | undefined;
+/**
+ * Display-name fields are the user's chosen name, not an id — they must not
+ * pass the opaque filter. `customerName` / `username` like `xxww0098` or
+ * `fwfeibn6` are letters+digits and would be dropped as "internal id" even
+ * though they are exactly what the vendor shows. Site ids still excluded.
+ */
+export declare function pickGlmName(...candidates: any[]): string | undefined;
+export declare function glmBizBase(region?: string): "https://api.z.ai" | "https://open.bigmodel.cn";
+/**
+ * ZCode Desktop client fingerprint for the Coding Plan gateway.
+ *
+ * Header set from bootstrap/src/model-config.ts (buildCliZCodeSourceHeaders) +
+ * runtime-platform-headers.ts, plus the per-request attribution headers in
+ * adapters/src/model/runner-attribution.ts. `x-zcode-session-type` is what the
+ * Coding Plan server reads to tell main / subagent / other apart; this hop
+ * serves DSH's main loop, so it sends `main`.
+ */
+export declare function glmDesktopHeaders(sessionId?: any): any;
+export declare function glmUpstreamHeaders(session: any, sessionId?: any): any;
+export declare function glmAnthropicHeaders(session: any, sessionId: any): any;
+/**
+ * MCP quota headers (buildOfficialMcpAuthHeaders): the zcode JWT rides
+ * `authorization`, the provisioned Coding Plan api-key rides
+ * `X-Bigmodel-Authorization`, and PERSONAL scope sends
+ * `Bigmodel-Target-Type: PERSONAL`. Returns undefined without a zcodeJwt —
+ * the endpoint 400s without it.
+ */
+export declare function glmMcpUsageHeaders(session: any): any;
+export declare function isSuccessCode(code: any): boolean;
+/** Business envelope failure (HTTP 200 with a non-zero `code`). Terminal. */
+export declare class GlmBusinessError extends Error {
+    code: any;
+    constructor(operation: any, code: any, message: any);
+}
+export declare function unwrapEnvelope(body: any, operation: any): any;
+export declare function createPollToken(): string;
+/**
+ * Server `expires_at` is epoch **seconds** (auth-login-polling.ts:
+ * `expires_at * 1_000`). Older/other spellings can be epoch ms; a small
+ * relative number falls back to a 5-minute budget instead of becoming 1970.
+ */
+export declare function parseGlmExpiresAt(value: any, now?: number): number;
+export declare function parseCliInit(body: any): {
+    flowId: string;
+    authorizeUrl: string;
+    intervalMs: number;
+    expiresAt: number;
+};
+/**
+ * Provider access token from a ready poll. The official readers only look at
+ * the provider-named object — `data[providerId].access_token`
+ * (cli-oauth.ts parseReadyData; webAuthService for BigModel) — so the region
+ * decides the field, and `data.token` is never a substitute: that is the
+ * zcode JWT, which bigmodel.cn rejects with 「令牌已过期或验证不正确」.
+ * bigmodelProviderAdapter.ts spells it out: the provider token is what
+ * bigmodel.cn business APIs take (here: the biz bearer for key minting and
+ * the `oauthAccess` identity token); the zcode JWT is only for Start Plan.
+ */
+export declare function glmProviderAccessToken(data: any, region?: string): string | undefined;
+/**
+ * Official poll states are `pending` / `ready` / `failed`
+ * (auth-login-polling.ts). Anything else is terminal too: a stale or
+ * unknown state must fail the login instead of spinning until expiry.
+ */
+export declare function parseCliPoll(body: any, region?: string): {
+    message?: string | undefined;
+    status: string;
+    ready: boolean;
+    failed: boolean;
+    unknown: boolean;
+    oauthAccess?: undefined;
+    zcodeJwt?: undefined;
+    email?: undefined;
+    accountId?: undefined;
+} | {
+    status: string;
+    ready: boolean;
+    oauthAccess: string;
+    zcodeJwt: string | undefined;
+    email: string | undefined;
+    accountId: string | undefined;
+};
+/**
+ * HTTP failure with the status attached. The CLI login poll retries
+ * transient failures and treats 4xx (except 408/429) as terminal, the same
+ * split auth-login-polling.ts uses.
+ */
+export declare class GlmHttpError extends Error {
+    status: number;
+    constructor(label: any, status: any, text: any);
+}
+/**
+ * CLI init. zcode.z.ai is told the machine's id (`X-Device-Mid`, magpie
+ * packages/zcode `call` sends it on every zcode.z.ai request); the flow's
+ * device id is minted here and must ride the poll of the same flow.
+ */
+export declare function glmCliInit({ region, fetchFn, pollToken, deviceMid }?: {
+    region?: string | undefined;
+    fetchFn?: typeof outboundFetch | undefined;
+    pollToken?: string | undefined;
+    deviceMid?: `${string}-${string}-${string}-${string}-${string}` | undefined;
+}): Promise<{
+    pollToken: string;
+    deviceMid: `${string}-${string}-${string}-${string}-${string}`;
+    region: string;
+    flowId: string;
+    authorizeUrl: string;
+    intervalMs: number;
+    expiresAt: number;
+}>;
+export declare function glmCliPoll({ flowId, pollToken, region, fetchFn, deviceMid }?: any): Promise<{
+    message?: string | undefined;
+    status: string;
+    ready: boolean;
+    failed: boolean;
+    unknown: boolean;
+    oauthAccess?: undefined;
+    zcodeJwt?: undefined;
+    email?: undefined;
+    accountId?: undefined;
+} | {
+    status: string;
+    ready: boolean;
+    oauthAccess: string;
+    zcodeJwt: string | undefined;
+    email: string | undefined;
+    accountId: string | undefined;
+}>;
+export declare function businessLogin(oauthAccessToken: any, { fetchFn, region }?: {
+    fetchFn?: typeof outboundFetch | undefined;
+    region?: string | undefined;
+}): Promise<string>;
+/**
+ * Personal plan name from subscription/list (magpie zcodePlan): the first
+ * VALID entry's productName, '' when the account has none, undefined when it
+ * cannot be told (transport/envelope failure is NOT read as "no plan").
+ */
+export declare function glmPersonalPlanName(apiKey: any, { fetchFn, region }?: {
+    fetchFn?: typeof outboundFetch | undefined;
+    region?: string | undefined;
+}): Promise<string | undefined>;
+/** The account's own (personal) Coding Plan key — today's mint, team projects excluded. */
+export declare function mintGlmApiKey(oauthAccessToken: any, { fetchFn, region }?: {
+    fetchFn?: typeof outboundFetch | undefined;
+    region?: string | undefined;
+}): Promise<string>;
+/** A team seat's project key: name zcode-team-api-key, keyType 2 (ensureBigModelTeamPlanProjectApiKeyWithStatus). */
+export declare function mintGlmTeamApiKey(bizToken: any, { fetchFn, region, org, project }?: any): Promise<string>;
+/**
+ * Login mint, personal first (magpie zcodeSignedIn): the personal key when a
+ * VALID subscription backs it; else the first EFFECTIVE + VALID team seat's
+ * keyType-2 key with `team {org, project}`; a minted personal key is kept
+ * even without a seat, so existing logins do not regress.
+ */
+export declare function mintGlmCodingKey(oauthAccessToken: any, { fetchFn, region }?: {
+    fetchFn?: typeof outboundFetch | undefined;
+    region?: string | undefined;
+}): Promise<{
+    plan?: any;
+    apiKey: any;
+    team?: undefined;
+} | {
+    apiKey: string;
+    team: any;
+    plan: string;
+} | {
+    note?: any;
+    apiKey: any;
+    team?: undefined;
+    plan?: undefined;
+}>;
+export declare function glmSession({ accessToken, account, accountId, region, zcodeJwt, oauthAccess, planType, team }?: any): {
+    team?: {
+        org: string | undefined;
+        project: string | undefined;
+    } | undefined;
+    planType?: string | undefined;
+    oauthAccess?: string | undefined;
+    zcodeJwt?: any;
+    region: string;
+    account?: string | undefined;
+    displayName?: string | undefined;
+    accessToken: string;
+    refreshToken: string;
+    expiresAt: number;
+};
+export declare function fetchGlmUserinfo(source: any, { fetchFn, region }?: any): Promise<string | undefined>;
+export declare function resolveGlmIdentity(source: any, { fetchFn }?: {
+    fetchFn?: typeof outboundFetch | undefined;
+}): Promise<string | undefined>;
+export declare function displayGlmAccount(session: any): string | undefined;
+export declare function completeGlmCli(ready: any, { fetchFn, region }?: {
+    fetchFn?: typeof outboundFetch | undefined;
+    region?: string | undefined;
+}): Promise<{
+    team?: {
+        org: string | undefined;
+        project: string | undefined;
+    } | undefined;
+    planType?: string | undefined;
+    oauthAccess?: string | undefined;
+    zcodeJwt?: any;
+    region: string;
+    account?: string | undefined;
+    displayName?: string | undefined;
+    accessToken: string;
+    refreshToken: string;
+    expiresAt: number;
+}>;
+/**
+ * `id.secret` provisioned keys carry exactly one dot; provider JWTs are three
+ * base64url segments. Spotting the JWT shape is how a stored BigModel bearer
+ * from before the mint fix (issue #168) is recognized for re-minting.
+ */
+export declare function isGlmJwtShape(value: any): boolean;
+export declare function refreshGlm(session: any): Promise<any>;

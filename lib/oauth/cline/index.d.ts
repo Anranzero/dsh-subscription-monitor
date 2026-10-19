@@ -1,0 +1,135 @@
+/**
+ * Cline (cline.bot) subscription OAuth — usage-billing / ClinePass credits.
+ *
+ * Pinned client: **Cline CLI 3.0.70** (npm `cline`, `apps/cli`) on
+ * `@cline/core 0.0.92` — source tag `cli-v3.0.70` of github.com/cline/cline:
+ * `sdk/packages/core/src/auth/cline.ts` (login / refresh),
+ * `sdk/packages/core/src/auth/provider-auth-registry.ts` (`workos:` prefix),
+ * `sdk/packages/llms/src/providers/request-headers.ts` (chat headers),
+ * `sdk/packages/llms/src/providers/vendors/cline.ts` (OpenAI-compatible hop),
+ * `sdk/packages/llms/src/catalog/catalog-cline-recommended.ts` (picker feed).
+ *
+ * Login is **WorkOS device authorization** + a Cline register exchange:
+ * no PKCE, no loopback callback server, no browser redirect. The CLI defaults
+ * to it (`useWorkOSDeviceAuth: true`); its PKCE/browser branch exists only for
+ * the legacy VS Code extension and this hop does not carry it.
+ *
+ * Chat is OpenAI **Completions** at `{apiBaseUrl}/api/v1/chat/completions`,
+ * authenticated with `Authorization: Bearer workos:<jwt>`. The `workos:`
+ * prefix is not decoration: the API answers 401 `Unauthorized: Please make
+ * sure you're using the latest version of Cline…` for a bare JWT
+ * (live-verified 2026-09-19; mirrors `formatAccessToken` in
+ * `provider-auth-registry.ts`).
+ */
+import { applyClineCache, clineCacheSessionId, resetClinePins } from './cache.js';
+export declare const CLINE_API_BASE = "https://api.cline.bot/api/v1";
+export declare const CLINE_CHAT_URL = "https://api.cline.bot/api/v1/chat/completions";
+export declare const CLINE_REGISTER_URL = "https://api.cline.bot/api/v1/auth/register";
+export declare const CLINE_REFRESH_URL = "https://api.cline.bot/api/v1/auth/refresh";
+export declare const CLINE_ME_URL = "https://api.cline.bot/api/v1/users/me";
+export declare const CLINE_RECOMMENDED_MODELS_URL = "https://api.cline.bot/api/v1/ai/cline/recommended-models";
+/** Cloud catalog `loadCloudModels` reads. Facts only — not the picker membership. */
+export declare const CLINE_MODELS_URL = "https://api.cline.bot/api/v1/ai/cline/models";
+export declare const CLINE_WORKOS_DEVICE_URL = "https://api.workos.com/user_management/authorize/device";
+export declare const CLINE_WORKOS_AUTHENTICATE_URL = "https://api.workos.com/user_management/authenticate";
+/** WorkOS client registered for the Cline production environment. */
+export declare const CLINE_WORKOS_CLIENT_ID = "client_01K3A541FN8TA3EPPHTD2325AR";
+export declare const CLINE_ACCESS_TOKEN_PREFIX = "workos:";
+/** `@cline/core` package version (`X-CORE-VERSION`). */
+export declare const CLINE_CORE_VERSION = "0.0.92";
+/** `apps/cli/src/main.ts` extensionContext.client — the CLI's own identity. */
+export declare const CLINE_CLIENT_TYPE = "cline-cli";
+export declare const CLINE_USER_AGENT = "Cline/3.0.70";
+/** `DEFAULT_REFRESH_BUFFER_MS` — refresh 5 min before `expiresAt`. */
+export declare const CLINE_PREEMPT_MS: number;
+/**
+ * DSH picker level → `reasoning_effort` value.
+ *
+ * Transcribed from `sdk/packages/llms/src/providers/routing/portable-reasoning.ts`:
+ * the `cline` provider id is in neither the portable nor the non-portable set,
+ * so an effort passes through unchanged except `max` → `xhigh`, and a disabled
+ * reasoning control sends **no** field at all — hence no `off` key.
+ * `@ai-sdk/openai-compatible` composes the portable
+ * option into the `reasoning_effort` body field this hop forwards.
+ */
+export declare const CLINE_REASONING: Readonly<{
+    minimal: "minimal";
+    low: "low";
+    medium: "medium";
+    high: "high";
+    xhigh: "xhigh";
+    max: "xhigh";
+}>;
+export declare const CLINE_DEFAULT_CONTEXT = 128000;
+export declare const CLINE_DEFAULT_MAX_TOKENS = 8192;
+export declare const CLINE_INPUT: readonly string[];
+/**
+ * Offline picker seed. `refreshClineCatalog` replaces it after login from
+ * the recommended feed plus `/ai/cline/models`; it never drops the seed when
+ * that fetch fails. Rows live in `src/catalog/models.json` under `"cline"`.
+ */
+export declare const CLINE_MODELS: readonly any[];
+/** Catalog lookup for the custom-context ceiling (`familyMaxContextWindow`). */
+export declare function clineModel(modelId: any): any;
+export declare function clineSourceLabel(source: any): "env" | "key" | "CLI" | "OAuth" | undefined;
+/** `formatAccessToken` — idempotent `workos:` prefix on the bearer value. */
+export declare function formatClineAccessToken(value: any): string | undefined;
+/** `normalizeStoredAccessToken` — the bare WorkOS JWT. */
+export declare function normalizeClineAccessToken(value: any): string | undefined;
+export declare function clineSessionFromAuthData(data: any, fallback?: any): {
+    planType?: string | undefined;
+    source: any;
+    tokenType?: string | undefined;
+    userId?: string | undefined;
+    accessToken: string | undefined;
+    refreshToken: string;
+    expiresAt: number;
+    account: string;
+};
+/**
+ * Account id for a register payload that carried no `userInfo`: the WorkOS JWT
+ * `external_id` (which *is* the `usr-…` id), else `sub`, else a constant. Never
+ * a token fragment — the stored/displayed id must stay non-reversible.
+ */
+export declare function clineDefaultAccount(token: any): string;
+export declare function isClineOpaqueAccount(value: any): boolean;
+/**
+ * Identity the CLI sends on catalog, auth, and account calls
+ * (`buildClineClientHeaders`). No `X-Task-ID`: those calls are not a
+ * conversation, and a fresh id per request would also break the prefix
+ * cache the chat path pins.
+ */
+export declare function clineIdentityHeaders(): {
+    'HTTP-Referer': string;
+    'X-Title': string;
+    'X-IS-MULTIROOT': string;
+    'X-CLIENT-TYPE': string;
+    'X-CLIENT-VERSION': string;
+    'X-PLATFORM': string;
+    'X-PLATFORM-VERSION': string;
+    'X-CORE-VERSION': string;
+    accept: string;
+    'user-agent': string;
+};
+export declare function resolveClineIdentity(session: any, { fetchFn, signal }?: any): Promise<{
+    organizationId?: string | undefined;
+    organizationName?: string | undefined;
+    userId?: string | undefined;
+    planType?: string | undefined;
+    account?: string | undefined;
+} | undefined>;
+export declare function clineHomePaths({ env, home }?: {
+    env?: NodeJS.ProcessEnv | undefined;
+    home?: string | undefined;
+}): string[];
+/** `/api/v1/users/me/plan` slugs — names taken from the CLI's own provider
+ *  entries (`builtins.ts`: "Cline Usage-Billing" / "ClinePass"). */
+export declare const CLINE_PLAN_NAMES: Readonly<{
+    usage_billing: "Usage-Billing";
+    usagebilling: "Usage-Billing";
+    'usage-billing': "Usage-Billing";
+    clinepass: "ClinePass";
+    cline_pass: "ClinePass";
+    'cline-pass': "ClinePass";
+}>;
+export { applyClineCache, clineCacheSessionId, resetClinePins };

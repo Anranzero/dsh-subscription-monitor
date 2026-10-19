@@ -1,0 +1,37 @@
+/**
+ * Command Code account lifecycle for AuthController: loopback login start and pasted
+ * keys, auth.json auto-import, whoami identity, and the loopback-callback login completion.
+ * Functions take the controller as their first argument; the class keeps
+ * the public entry points.
+ */
+import type { AuthController } from '../../oauth/controller.js';
+/**
+ * Live picker rows for warmCatalogs: the discover seam refreshes the vendor's
+ * list; without one (or when the read fails) the pinned registry stands.
+ */
+export declare function discoverCommandCode(ctl: AuthController, session: any): Promise<any>;
+export declare function maybeAutoImportCommandCode(ctl: AuthController): Promise<void>;
+export declare function importCommandCode(ctl: AuthController): Promise<{
+    source: unknown;
+    session: import("../../oauth/store.js").StoredSession;
+    skipped: boolean;
+} | {
+    session: any;
+    source: string;
+    skipped?: undefined;
+}>;
+export declare function rememberCommandCodeIdentity(ctl: AuthController, row: any, quota: any): Promise<void>;
+/**
+ * Command Code's waitCode resolves with the callback credentials
+ * {apiKey,userId,userName,keyName} — the session builds directly, there is
+ * no token exchange (flow.ts collect() already state-checked the callback).
+ */
+export declare function completeCommandCode(ctl: AuthController, attempt: any, claim: any): Promise<void>;
+export declare function loginCommandCode(ctl: AuthController): Promise<{
+    authorizeUrl: any;
+    redirectUri: any;
+    mode: string;
+}>;
+export declare function useCommandCodeKey(ctl: AuthController, key: any): Promise<{
+    account: Record<string, unknown> | undefined;
+}>;

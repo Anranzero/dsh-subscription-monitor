@@ -1,0 +1,37 @@
+/**
+ * Kiro credential import. Reads the credential dumps the desktop tooling
+ * writes — the shapes cross-checked against kiro-manager-lite
+ * (https://github.com/lucks-cloud/kiro-manager-lite) and kiro.rs, plus the
+ * Kiro IDE SSO cache. Original parsers — no AGPL source enters the tree.
+ *
+ * Recognised:
+ *   卡密        email----password----refreshToken----clientId----clientSecret----provider
+ *   compact JSON  [{ email, refreshToken, provider, clientId, clientSecret }]
+ *   full backup   { app: "kiro-account-lite", accounts: [{ credentials, idp, email }] }
+ *   CSV / TXT     header aliases 邮箱/email/refreshToken/登录方式
+ *   kiro.rs       credentials.json array or object
+ *   IDE token     ~/.aws/sso/cache/kiro-auth-token.json (+ client registration json)
+ *   IDE store     ~/.kiro/credentials.json / credentials.json in the CWD
+ *   API keys      ksk_… lines
+ */
+export declare function kiroSsoClientIdHash(startUrl?: string): string;
+/** Merge Kiro IDE token file with the hashed OIDC client registration next to it. */
+export declare function hydrateKiroSsoToken(token: any, registration: any): any;
+export declare function flattenKiroImport(raw: any): any;
+export declare function sessionsFromKiroAuth(raw: any): any[];
+/**
+ * @returns {{ kind: string, sessions: object[] }}
+ * kind: json | kami | csv | keys | raw-token | empty
+ */
+export declare function parseKiroImportText(raw: any): {
+    kind: string;
+    sessions: any[];
+};
+export declare function isKiroBatchImport(kind: any): boolean;
+export declare function kiroAuthSearchPaths(): string[];
+export declare function sessionFromKiroAuth(raw: any): any;
+export declare function importKiroAuth(paths?: any): Promise<{
+    session: any;
+    sessions: any[];
+    source: any;
+}>;

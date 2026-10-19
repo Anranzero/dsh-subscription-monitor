@@ -1,0 +1,121 @@
+/**
+ * Command Code（api.commandcode.ai）— 常量 + API key session + 模型目录。
+ *
+ * Command Code CLI `command-code@1.84.0`（npm 包 `command-code`，bin 别名
+ * `cmd`/`cmdc`/`commandcode`）发：
+ *
+ *   GET  /alpha/whoami?limits=1
+ *   GET  /alpha/billing/credits[?orgId=…]
+ *   GET  /alpha/billing/subscriptions[?orgId=…]
+ *   GET  /alpha/usage/summary[?orgId=…&since=…]
+ *   POST /alpha/generate               ← 唯一推理入口，自有 JSONL 流协议
+ *
+ * 与 OpenCode Go 的 catalog 路由不同：`/alpha/generate` 不是
+ * OpenAI/Anthropic 兼容端点（AI-SDK 风格 wire），所以 DSH 闭集三个 `api`
+ * 都不通——走 `transport.ts` 的 JSONL hop，model 字段原样透传。
+ *
+ * 凭据：`COMMAND_CODE_API_KEY` 环境变量优先，其次 `~/.commandcode/auth.json`
+ * 的 `apiKey`（CLI `getCommandAuthKey` 同序）。Bearer，无 refresh。
+ *
+ * 模型目录：CLI bundle 内嵌目录（1.84.0 为 100 行，8 行 hidden——本表取 92 个
+ * 可见行；可选性看行上的 hidden，不再另有 hidden Set）。
+ * 1.83.0 退役 inclusionai/ling-3.0-flash 两行（整行删除，不是标 hidden）。
+ * reasoningEfforts 取目录行自带的列表；没有条目不发明 fallback。
+ * contextWindow 缺省回填 CLI 默认 200000。/alpha/models 不存在；
+ * 公开 GET /provider/v1/models 只刷新成员与窗口。
+ * 规划价目（CLI `rr` 表，USD/月）：individual-go $10 / individual-provider
+ * $15 / individual-pro $30 / individual-pro-v1 $80 / teams-pro $40 /
+ * individual-goat $70 / individual-max $150 / individual-ultra $300。
+ */
+export declare const COMMAND_CODE_GENERATE_URL = "https://api.commandcode.ai/alpha/generate";
+/**
+ * The vendor's own model list (`{object:'list', data:[{id,name,context_length,supported_endpoints}]}`).
+ * Public — it answers without a key (live 2026-10-10: 200, 87 rows) — and it is
+ * not the CLI's path: `/alpha/generate` stays the inference surface.
+ */
+export declare const COMMAND_CODE_PROVIDER_MODELS_URL = "https://api.commandcode.ai/provider/v1/models";
+/** The engine loader's Provider-API chat endpoint (Go keys it reroutes to /alpha/generate itself). */
+export declare const COMMAND_CODE_PROVIDER_CHAT_URL = "https://api.commandcode.ai/provider/v1/chat/completions";
+/** CLI `max_tokens ?? 64000` 上限；无 per-model output cap。 */
+export declare const COMMAND_CODE_MAX_TOKENS = 64000;
+/** Static catalog. Rows live in `src/catalog/models.json` under `"command-code"`; per-model output cap comes from `COMMAND_CODE_MAX_TOKENS` at the harness seam. */
+export declare const COMMAND_CODE_MODELS: readonly any[];
+export declare function commandCodeModelById(id: any): any;
+/**
+ * API key 校验：`user_…` 前缀是 CLI 写入 auth.json 的形态，但只做长度
+ * 兜底不硬绑前缀（env 里可能是派生 key）。拒绝换行 / 控制符，防止
+ * 粘贴把多行 secret 拼进 Authorization。
+ */
+export declare function parseCommandCodeApiKey(input: any): string;
+/**
+ * /alpha/whoami → session.account / planType / accountId 候选。
+ * `{ success, user:{id,name,email,userName}, org:{id,…}|null }`；
+ * 部分部署回 `{user:…}` 无 success 包装。身份显示优先级：userName >
+ * email > name > user.id —— userName 是 CLI 登录后回显的字段。
+ */
+export declare function parseCommandCodeWhoami(payload: any): {
+    id: any;
+    name: any;
+    email: any;
+    userName: any;
+    orgId: any;
+    account: any;
+} | undefined;
+/** CLI plan 价目表 `rr`（usage 面板），USD/月——键是订阅 planId 原文。 */
+export declare const COMMAND_CODE_PLAN_CREDITS: Readonly<{
+    'individual-go': 10;
+    'individual-goat': 70;
+    'individual-pro': 30;
+    'individual-pro-v1': 80;
+    'individual-provider': 15;
+    'individual-max': 150;
+    'individual-ultra': 300;
+    'teams-pro': 40;
+}>;
+/**
+ * `getPlanInfo`: planId lowercased, `_`→`-`, longest-prefix match against the
+ * plan table (so `individual-pro-v1` wins over `individual-pro`). Unknown ids
+ * fall back to the `getPlanDisplayName` strip of `individual-`/`teams-`.
+ * (Moved here from quota.ts — the label mapping outlives the quota wire.)
+ */
+export declare function commandCodePlanInfo(planId: any): {
+    id: string;
+    name: any;
+    monthlyCredits: any;
+} | undefined;
+/** planType stored on the session → display label (plan.ts uses this). */
+export declare function commandCodePlanLabel(planId: any): any;
+/** Vault / card id before /alpha/whoami resolves a human identity. */
+export declare function commandCodeDefaultAccount(key: any): string;
+export declare function isCommandCodeOpaqueAccount(account: any): boolean;
+export declare function commandCodeSession(fields?: any): any;
+/** 上游 hop 头：CLI 发 Authorization + x-command-code-version + x-cli-environment。 */
+export declare function commandCodeUpstreamHeaders(session: any, extra?: any): any;
+/** Env var the CLI reads first (`getCommandApiKeyFromEnv`). */
+export declare const COMMAND_CODE_API_KEY_ENV = "COMMAND_CODE_API_KEY";
+/**
+ * CLI auth dir resolves to `~/.commandcode/auth.json`
+ * (`resolveCommandAuthDir` — `COMMANDCODE_HOME` is not a thing; the dir name
+ * is fixed `.commandcode`).
+ */
+export declare function commandCodeAuthFilePath(home: any): string;
+/** Masked hint for account rows that carry no friendlier account name. */
+export declare function commandCodeKeyHint(key: any): string;
+/** Friendly account label; opaque fingerprint/key-tail ids and raw user uuids stay out of the UI. */
+export declare function pickCommandCodeHumanAccount(...candidates: any[]): string | undefined;
+export declare function commandCodeSourceLabel(source: any): "env" | "key" | "CLI" | "browser" | undefined;
+/**
+ * `/alpha/whoami` → identity. Returns undefined on any failure (paste form
+ * stores the account hint instead); never throws for quota/identity display.
+ */
+export declare function resolveCommandCodeIdentity(session: any, { fetchFn, signal }?: any): Promise<{
+    id: any;
+    name: any;
+    email: any;
+    userName: any;
+    orgId: any;
+    account: any;
+} | undefined>;
+/** Permanent key: TokenManager never refreshes (expiresAt = MAX_SAFE_INTEGER). */
+export declare function refreshCommandCode(session: any): Promise<any>;
+export declare function isCommandCodePermanentRefreshError(): boolean;
