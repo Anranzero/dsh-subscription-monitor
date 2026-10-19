@@ -23,6 +23,13 @@ dsh web
 
 On the desktop app, use **插件 Plugins → 添加插件** and paste the same repo URL instead — the command above is web-only.
 
+**Local / `link:` installs** — if you installed from a local checkout (e.g.
+`link:C:/Users/<you>/.dsh/local-plugins/dsh-subscription-monitor` in the profile's
+`package.json`), run `pnpm install` inside that directory first. The plugin's regular
+dependencies (`undici`) are not provided by the DSH host, so a linked checkout needs its
+own `node_modules`; `@deepseek-ai/schemastery` and `@deepseek-ai/cordis` are peer
+dependencies and are resolved from the host automatically.
+
 **2 · Open the workbench**
 
 Sidebar → **插件 Plugins** → **订阅 Subscriptions**.

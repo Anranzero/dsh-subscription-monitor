@@ -20,6 +20,16 @@ possible.
 
 Changes made on top of upstream v0.0.124:
 
+- **Manifest — `@deepseek-ai/schemastery` is now a peer dependency.** It ships
+  with the DSH host (`app.asar`), so it belongs in `peerDependencies` like
+  `@deepseek-ai/cordis`. Under a `link:` install the DSH linked-resolution layer
+  only intercepts peer-declared packages; as a regular dependency it resolved to
+  nothing and the plugin's node half failed to import, which the UI reports as
+  "未运行 / not running". Registry and GitHub installs are unaffected (pnpm
+  installs it into the profile's own `node_modules` either way). `undici` stays a
+  regular dependency — the host ships undici 8.x, which does not satisfy this
+  plugin's `^7.30.0` range, so it must not be routed to the host copy.
+
 - **Usage tab — merge by model name.** The per-model list grouped rows by
   `family/model`, so a model reached through two credentials (e.g. `grok-4.6` via
   `oauth-grok` and `oauth-cursor`) showed up as two rows, each holding half its
