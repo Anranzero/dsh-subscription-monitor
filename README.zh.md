@@ -2,6 +2,8 @@
 
 简体中文 | [English](README.md)
 
+> 侧边栏显示名：**订阅用量**（图标为用量环：暗色整环是配额，亮弧是用掉的份额）。
+
 > **本项目是 `dsh-plugin-oauth-subs` 的本地 fork，现已更名为 `dsh-subscription-monitor`。**
 > 上游仓库（`github.com/xxww0098/dsh-plugin-oauth-subs`）已被作者删除，本 fork 用于让插件继续
 > 可安装。来源说明与本地改动见 [NOTICE.md](NOTICE.md)。

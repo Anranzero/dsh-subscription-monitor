@@ -2,6 +2,9 @@
 
 [简体中文](README.zh.md) | English
 
+> Sidebar label: **Subscription usage** (the glyph is a usage ring: the dim ring is
+> the allowance, the bright arc is the consumed share).
+
 > **A local fork of `dsh-plugin-oauth-subs`, renamed to `dsh-subscription-monitor`.** The
 > upstream repository (`github.com/xxww0098/dsh-plugin-oauth-subs`) was removed by its
 > author, so this fork keeps the plugin installable. See [NOTICE.md](NOTICE.md) for
