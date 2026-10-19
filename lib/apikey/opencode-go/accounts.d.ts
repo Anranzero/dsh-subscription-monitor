@@ -29,6 +29,7 @@ export declare function opencodeGoSnapshot(ctl: AuthController, options?: any): 
     configured: boolean;
     quota: any;
 }>;
+export declare function opencodeZenInUse(snapshot: any): boolean;
 export declare function saveOpencodeGo(ctl: AuthController, payload?: any): Promise<{
     id: string;
     loggedIn: boolean;
