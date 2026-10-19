@@ -15,7 +15,7 @@ possible.
 
 ## Local changes in this fork
 
-Changes made on top of upstream v0.0.124, all confined to `lib/ui/client.js`:
+Changes made on top of upstream v0.0.124:
 
 - **Usage tab — merge by model name.** The per-model list grouped rows by
   `family/model`, so a model reached through two credentials (e.g. `grok-4.6` via
@@ -34,11 +34,23 @@ Changes made on top of upstream v0.0.124, all confined to `lib/ui/client.js`:
   composer chip covered only OpenCode and CommandCode). The active session's
   model provider is mapped to its family and that family's remaining share is
   shown in the input toolbar, for all 20+ families this plugin manages.
+- **MiniMax API-key family.** A new `minimax` family (`lib/apikey/minimax/`):
+  paste a key from the platform.minimax.cn console and the plugin owns the route
+  (`oauth-minimax` → `openai-completions` on the loopback hop, forwarded to
+  `https://api.minimax.cn/v1/chat/completions`). Catalog is the static floor from
+  the official OpenAI-compatibility docs: `MiniMax-M3.1-Flash` and `MiniMax-M3`
+  (1M context, 512K output, vision, `reasoning_effort` on M3.1-Flash) plus
+  `MiniMax-M2.7` (200K). No quota meters: MiniMax publishes no balance endpoint,
+  so the card names the account and leaves the strip empty rather than inventing
+  a number.
 - **Layout.** The shell's `max-width` went 1000px → 1280px and is now centred;
   the stats page reuses the same shell width instead of opting out.
 
-Not changed: the server half, the OAuth families, the loopback proxy, the quota
-logic, or any upstream behaviour.
+Not changed: the existing OAuth families' login flows, the loopback proxy's
+route mechanics, or the upstream quota logic. The fork also ships without the
+upstream TypeScript sources (`lib/` is edited directly), so `npm run build` and
+`npm test` are not available here — the two scripts that gate each change are
+`node --check` on every touched file and the behavioural probe described above.
 
 ## Dependencies
 
