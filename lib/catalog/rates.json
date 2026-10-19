@@ -1120,8 +1120,8 @@
         "step-5-preview": {
             "in": 1, "out": 2.7, "cacheRead": 0.1
         },
-        "space-bunny": {
-            "in": 0.15, "out": 0.6, "cacheRead": 0.03
+        "minimax-m3.1-flash-free": {
+            "in": 0, "out": 0, "cacheRead": 0
         },
         "kimi-k2.6": {
             "in": 0.95, "out": 4, "cacheRead": 0.16
