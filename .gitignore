@@ -31,3 +31,6 @@ data/
 
 # Local edit backups
 *.bak-stats-menu-*
+
+# Any local edit backup (client.js.bak-* etc.)
+*.bak-*
