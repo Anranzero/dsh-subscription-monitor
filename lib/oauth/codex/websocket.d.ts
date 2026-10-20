@@ -48,14 +48,17 @@ export interface CodexWsEntry {
     continuation: CodexWsContinuation | undefined;
 }
 /**
- * The transport is opt-in: `DSH_CODEX_WEBSOCKET=on`. Off by default until the
- * backend's WS behaviour is live-confirmed (README 对话 section); the SSE hop
- * stays the default wire, and every other value (or none) keeps it that way.
+ * Auto preconnects without delaying HTTP. `on` also permits cold connections;
+ * `off` disables the transport.
  */
 export declare function codexWebSocketEnabled(): boolean;
+export declare function codexWebSocketMode(): 'auto' | 'on' | 'off';
+export declare function codexWebSocketReady(session: any, cacheSessionId: string): boolean;
+export declare function prepareCodexWebSocket(url: string, session: any, cacheSessionId: string): Promise<void>;
 export declare function codexWebSocketCooling(cacheSessionId: string): boolean;
 export declare function markCodexWebSocketFallback(cacheSessionId: string): void;
 export declare function codexWebSocketPoolSize(): number;
+export declare function ownCodexWebSockets(): () => void;
 /** Test/reset seam and the plugin-close hook: closes every pooled socket. */
 export declare function closeCodexWebSockets(): void;
 /** Key-order-insensitive JSON, so host key drift cannot fake or break a match. */
@@ -86,9 +89,18 @@ export interface CodexWebSocketAttempt {
     signal?: AbortSignal;
     /** The upstream attempt's touch: feeds its idle timers per event. */
     touch?(): void;
+    /** Optional local transport diagnostics; never contains request content. */
+    timing?: {
+        mark(stage: string): void;
+        stats: {
+            wsReused?: boolean;
+            wsDelta?: boolean;
+        };
+    };
     captureSse?: {
-        type: string;
-        onData: (data: any) => void;
+        type?: string;
+        onData?: (data: any) => void;
+        onText?: () => void;
     };
 }
 /**

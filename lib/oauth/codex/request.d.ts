@@ -20,9 +20,9 @@ export declare function normalizeCodexResponsesBody(payload: any): any;
  * official client sends them — `instructions` alone is ~128KB. Called once per
  * request; every retry reuses the same bytes.
  */
-export declare function encodeCodexBody(body: Buffer): {
+export declare function encodeCodexBody(body: Buffer): Promise<{
     body: NonSharedBuffer;
     headers: {
         'content-encoding': string;
     };
-};
+}>;

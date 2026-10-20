@@ -4,13 +4,9 @@
 
 > 侧边栏显示名：**订阅用量**（图标为用量环：暗色整环是配额，亮弧是用掉的份额）。
 
-> **本项目是 `dsh-plugin-oauth-subs` 的本地 fork，现已更名为 `dsh-subscription-monitor`。**
-> 上游仓库（`github.com/xxww0098/dsh-plugin-oauth-subs`）已被作者删除，本 fork 用于让插件继续
-> 可安装。来源说明与本地改动见 [NOTICE.md](NOTICE.md)。
+项目来源与署名见 [NOTICE.md](NOTICE.md)。
 
 **把你已经在付费的 AI 订阅接进 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)。** 登录一次，ChatGPT / Codex、Grok、GLM、Kiro、Antigravity、Cursor、Ollama Cloud、Kimi、Devin、Cline 的套餐就变成会话里能直接选的模型——额度、模型、用量都在一个工作台里。
-
-> 上游 README 中的截图未包含在本 fork 中 —— 上游仓库及其 `docs/` 资源已不存在。
 
 ## 快速开始
 
@@ -52,6 +48,12 @@ registry 上的包不一样，把它路由进来正是过去导致插件 import 
 | **用量** | Token、缓存命中、调用次数与估算成本，按模型或按会话查看（单模型的首字延迟在各行）。 |
 | **榜单** | 每日更新的模型排名快照。 |
 | **设置** | 更新、代理，以及插件自身的来源信息。 |
+
+已登录或已保存 API Key 的供应商会在启动、登录后及后台每 5 分钟检查模型目录（沿用各目录缓存周期）；未配置的供应商不请求。新发现的模型默认关闭，已有开关和自定义窗口保持不变，接口失败保留当前目录。Codex 自动查询公开客户端版本，MiniMax 缺少参数时读取 models.dev 公开元数据；这些公开查询不携带账号凭据，参数不完整的新型号暂不加入。
+
+禁用插件会撤下它写入宿主的模型路由；账号、开关和自定义窗口保留，重新启用后按原选择恢复。用户自建路由不会因同名供应商被清理。
+
+模型页只显示已配置账号或密钥的供应商；已配置但模型全关的供应商仍保留，新增账号从额度页进入。Grok 与 Cursor 的模型标明调用通道，开关保持独立。Grok 上游同时确认统一账单和 Cursor 合并时，额度页标注共享池并保留完整产品用量明细；产品明细不代表额外额度。当前 Cursor 旧额度接口不提供跨账号共享池标识，因此不会仅凭邮箱或套餐名合并两边卡片，也不会将两边余额相加。
 
 ## 支持的订阅
 
@@ -148,6 +150,38 @@ registry 上的包不一样，把它路由进来正是过去导致插件 import 
 | `cursorProxy` | — | Cursor 上游代理（`http://` 或 `socks5://`），用于区域门模型 |
 
 ### 诊断
+
+Codex 请求按需编码：WebSocket 成功时跳过 HTTP 全量序列化和 Zstd 压缩；
+回退 HTTP 时才异步压缩，同一请求的重试复用编码结果。压缩不再阻塞 Node
+主线程，取消或超时后的编码结果不会触发迟到的上游请求。模型、推理等级、
+缓存标识保持原有规则。Codex 默认使用 `auto` 传输：首次 HTTP 请求同时在后台
+建立 WebSocket，连接就绪后用于后续请求，匹配历史时只发送增量；连接失败会冷却并
+回退 HTTP。`DSH_CODEX_WEBSOCKET=off` 可固定 HTTP，`on` 允许等待冷连接。
+
+本地 `/health` 的 `codexTransport` 提供当前模式、连接数、复用/增量/回退计数和
+最近一条请求的分段计时。`firstText` 记录上游首个非空文本 delta 到达时间，不含 UI
+渲染耗时；纯工具调用没有该值。预连接不发送提示词、不触发模型生成。
+
+需要定位延迟时，可在**启动 DSH 的进程环境**设置 `DSH_CODEX_TIMING=on`。
+每个 Codex 请求结束时，服务端 stderr 输出一条 `[oauth-subs] codex timing`
+JSON；默认关闭。记录只含耗时、请求字节数、尝试次数和传输标记，不含正文、
+URL、账号、会话标识或凭据。
+
+- `stagesMs` 是从代理收到请求起算的毫秒偏移；`credentialsReady` 包含进入
+  `forward()` 前的路由及凭据准备时间，不能当成纯 token 刷新耗时。
+- HTTP：`bodyRead` → `normalized` → `encodeStart` → `encodeEnd` →
+  `upstreamSend` → `upstreamHeaders` → `firstForward`。
+- WebSocket：`wsConnected`、`upstreamSend`、`upstreamEvent`、
+  `firstForward`，并记录 `wsReused`、`wsDelta`；回退时有 `wsFallback`。
+- 阶段记录首次到达时间；重试时结合 `attempts` 解读，不能用首次响应头时间
+  计算后续尝试的网络耗时。`firstForward` 是首次转发协议数据，**不是可见文本
+  首 token**，不能直接替代界面的 TTFT。
+
+定向回归检查（本地模拟上游，不调用真实模型）：
+
+```sh
+node --experimental-test-module-mocks --experimental-strip-types --test test/codex-forward-performance.test.ts
+```
 
 ```sh
 npm run analyze -- path/to/session.jsonl              # 单个会话

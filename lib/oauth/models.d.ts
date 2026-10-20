@@ -31,6 +31,10 @@ export interface BuildProvidersOptions {
     prefix: string;
     origin: string;
     loggedIn: Record<string, boolean>;
+    codexModels?: readonly ModelRow[];
+    grokModels?: readonly ModelRow[];
+    antigravityModels?: readonly ModelRow[];
+    minimaxModels?: readonly ModelRow[];
     cursorModels?: readonly ModelRow[];
     ollamaModels?: readonly ModelRow[];
     kiroModels?: readonly ModelRow[];

@@ -5,15 +5,9 @@
 > Sidebar label: **Subscription usage** (the glyph is a usage ring: the dim ring is
 > the allowance, the bright arc is the consumed share).
 
-> **A local fork of `dsh-plugin-oauth-subs`, renamed to `dsh-subscription-monitor`.** The
-> upstream repository (`github.com/xxww0098/dsh-plugin-oauth-subs`) was removed by its
-> author, so this fork keeps the plugin installable. See [NOTICE.md](NOTICE.md) for
-> provenance and the list of local changes.
+Project origin and attribution: [NOTICE.md](NOTICE.md).
 
 **Use the AI subscriptions you already pay for, inside [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness).** Sign in once and your ChatGPT / Codex, Grok, GLM, Kiro, Antigravity, Cursor, Ollama Cloud, Kimi, Devin or Cline plan becomes a model you can pick in any session — with quota, models and usage in one workbench.
-
-> Screenshots from the upstream README are not included in this fork — the upstream
-> repository and its `docs/` assets no longer exist.
 
 ## Quick start
 
@@ -58,6 +52,12 @@ Open the **模型 Models** tab, switch on the families you want, then pick a mod
 | **用量 Usage** | Tokens, cache hits, calls and estimated cost — by model or by session (per-model latency reads on each row). |
 | **榜单 Leaderboard** | Daily model ranking snapshot. |
 | **设置 Settings** | Updates, proxy, and where the plugin comes from. |
+
+Configured providers are checked for new models at startup, after login, and every 5 minutes in the background, subject to each catalog's cache TTL. Providers without a saved login or API key are skipped. New models start disabled; existing selections and context overrides are preserved, and failed reads retain the current catalog. Codex follows the public client version; MiniMax supplements missing parameters with public models.dev metadata. Public metadata requests carry no account credentials, and incomplete new models wait for sufficient metadata.
+
+Disabling the plugin withdraws its host model routes while retaining credentials and picker preferences; enabling it restores the saved selection. User-owned routes are preserved.
+
+Codex defaults to automatic transport: the first HTTP request preconnects a WebSocket in the background, and later turns reuse it with incremental inputs when compatible. Failures fall back to HTTP. `DSH_CODEX_WEBSOCKET=off` forces HTTP; `on` permits cold connections. The local `/health` response exposes content-free transport counters and the latest stage timings in `codexTransport`; `firstText` measures the first non-empty upstream text delta, excluding UI rendering.
 
 ## Supported services
 

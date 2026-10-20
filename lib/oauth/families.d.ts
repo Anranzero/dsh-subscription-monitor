@@ -156,8 +156,8 @@ export interface OAuthFamily {
     /**
      * models.ts buildProviders/catalogProviders: this family's catalog rows,
      * referencing its own catalog.ts export (never a copy). Families without a
-     * slot here project their static MODEL rows directly inside models.ts
-     * (codex, grok, antigravity). GLM deliberately has no sync accessor: its
+     * slot here project their static MODEL rows directly inside models.ts.
+     * GLM deliberately has no sync accessor: its
      * rows are read behind the glm session load (controller `#glmModels`) and
      * ride into familyCatalogInputs pre-resolved.
      */

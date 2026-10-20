@@ -18,7 +18,7 @@ export declare function classifySseFrame(frame: string): SseFrameKind;
  * never mistaken for a captured one, and a captured frame's JSON is parsed
  * only when classification did not already parse it.
  */
-export declare function scanSseFrame(frame: string, captureType?: string): {
+export declare function scanSseFrame(frame: string, captureType?: string | string[]): {
     kind: SseFrameKind;
     type: string | undefined;
     data: any;
@@ -31,8 +31,9 @@ export declare function scanSseFrame(frame: string, captureType?: string): {
 export declare class SseFrameScanner {
     #private;
     constructor(capture?: {
-        type: string;
-        onData: (data: any) => void;
+        type?: string;
+        onData?: (data: any) => void;
+        onText?: () => void;
     });
     push(chunk: Uint8Array): {
         kind: SseFrameKind;

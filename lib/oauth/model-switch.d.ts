@@ -7,7 +7,7 @@ export declare const DEFAULT_EFFORT_LEVELS: readonly string[];
 /**
  * Persisted enable/disable set for the Settings picker.
  * Default is all-on for families whose login has already been settled.
- * New non-opt-in catalog ids stay on. Explicit picker choices persist across
+ * Newly discovered catalog ids start off. Explicit picker choices persist across
  * restarts so automatic recovery cannot mistake all-off for leftover settings.
  *
  * 登录默认: a family that signs in while this plugin is running starts with
@@ -23,6 +23,7 @@ export declare class ModelSwitch {
     path: string | undefined;
     disabled: Set<string>;
     enabled: Set<string>;
+    catalogSeen: Set<string>;
     contexts: Record<string, number>;
     efforts: Record<string, string>;
     seenLogins: Set<string>;
@@ -38,6 +39,8 @@ export declare class ModelSwitch {
      */
     setEffort(level: any, families?: readonly string[]): Promise<void>;
     isEnabled(key: any): boolean;
+    /** Preserve the baseline and existing host routes; newly discovered rows start off once. */
+    rememberDiscovered(before: any, after: any, existing?: any): Promise<boolean>;
     /**
      * Startup seeding: every family already signed in when this plugin instance
      * started is `seen`, so the login default below only ever hits logins that

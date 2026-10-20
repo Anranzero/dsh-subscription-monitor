@@ -2,23 +2,14 @@
 
 ## Origin
 
-This repository is a **local fork of `dsh-plugin-oauth-subs`** (v0.0.124), originally
-published by **xxww0098** at `https://github.com/xxww0098/dsh-plugin-oauth-subs`.
-The fork is published as `dsh-subscription-monitor`; the on-disk data directory keeps
-its original name (`data/dsh-plugin-oauth-subs`) so existing credentials and usage
-caches keep working.
+The project originated from `dsh-plugin-oauth-subs` v0.0.124 by **xxww0098**.
+Original copyright and MIT license terms are retained in [LICENSE](LICENSE).
+Subsequent features, fixes and optimizations are developed and maintained as
+`dsh-subscription-monitor` by the current maintainer.
 
-That upstream repository has since been **removed by its author**. This copy was taken
-from an installed package before the removal, and is redistributed here under the
-original MIT license (see `LICENSE`, which retains the upstream copyright notice).
+## Project development
 
-All credit for the plugin's design and implementation belongs to the original author.
-This fork exists because installing the plugin from its original source is no longer
-possible.
-
-## Local changes in this fork
-
-Changes made on top of upstream v0.0.124:
+Features and maintenance work include:
 
 - **Manifest — only `@deepseek-ai/schemastery` and `@deepseek-ai/cordis` are
   peers.** Both ship with the DSH host (`app.asar`), so `peerDependencies` is the
@@ -68,11 +59,13 @@ Changes made on top of upstream v0.0.124:
 - **Layout.** The shell's `max-width` went 1000px → 1280px and is now centred;
   the stats page reuses the same shell width instead of opting out.
 
-Not changed: the existing OAuth families' login flows, the loopback proxy's
-route mechanics, or the upstream quota logic. The fork also ships without the
-upstream TypeScript sources (`lib/` is edited directly), so `npm run build` and
-`npm test` are not available here — the two scripts that gate each change are
-`node --check` on every touched file and the behavioural probe described above.
+## Maintenance
+
+Runtime changes are maintained in `lib/`. Validate touched JavaScript files with
+`node --check` and run the relevant behavioral tests; the bundled `npm run build`
+and `npm test` scripts do not match the current repository layout.
+The data directory remains `data/dsh-plugin-oauth-subs` for compatibility with
+existing credentials and usage caches.
 
 ## Dependencies
 

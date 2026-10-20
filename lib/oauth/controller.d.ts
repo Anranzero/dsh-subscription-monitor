@@ -79,6 +79,7 @@ export declare class AuthController {
     opencodeGo: any;
     opencodeGoAdopted: boolean;
     tokenSweepTimer: any;
+    catalogWatchTimer: any;
     outboundProxy: any;
     setOutboundProxy: any;
     usage: any;
@@ -133,12 +134,13 @@ export declare class AuthController {
     }>;
     catalog(): Promise<Record<string, any>>;
     /**
-     * Startup discovery for every signed-in family with a live catalog. The
-     * picker otherwise keeps the static floor until someone logs in or hits
-     * quota refresh, which is how region-gated / retired rows stay offered.
-     * Re-syncs once if any family's picker rows changed.
+     * Refresh only saved logins / keys, outside the chat request path. Concurrent
+     * startup, login and timer calls share one run; each catalog retains its TTL.
      */
     warmCatalogs(): Promise<void>;
+    dispose(): Promise<string[] | undefined>;
+    startCatalogWatch(options?: { intervalMs?: number }): void;
+    stopCatalogWatch(): void;
     /**
      * RPC payload for the Settings page. The Settings half is a classic script
      * that reads this as plain JSON. Leaving the return type to inference made

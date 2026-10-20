@@ -7,6 +7,7 @@
 export declare function filterProviders(providers: Record<string, any>, selected: any): Record<string, any>;
 /** `undefined` when the host cannot describe llm-pi-ai; `{}` when its providers are empty. */
 export declare function peekPiAiProviders(settings: any): Promise<any>;
+export declare function removeHarnessModels(options: { settings: any; prefix: string; origin: string; isCurrent?: () => boolean }): Promise<string[]>;
 /**
  * Ensure OpenCode Go is configured while only supplying what the installed
  * catalog lacks.
