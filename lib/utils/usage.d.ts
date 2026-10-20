@@ -23,6 +23,8 @@ type FileEntry = {
     size: number;
     id: string;
     version: number;
+    createdAt: number;
+    messages: [string, UsageRow][];
     rows: UsageRow[];
 };
 /**
@@ -34,6 +36,8 @@ type FileEntry = {
 export declare function scanSessionText(text: string, fallbackId: string): {
     id: string;
     version: number;
+    createdAt: number;
+    messages: [string, UsageRow][];
     rows: UsageRow[];
 };
 /**
@@ -63,8 +67,8 @@ type UsageSession = {
 };
 /**
  * Hourly usage rows and per-session aggregates since `days` ago, scanned
- * off-thread. Concurrent callers share one scan. ponytail: a worker per
- * request (~30 ms start); keep one alive only if the tab ever polls.
+ * off-thread. Callers for the same root/cache share a full-history scan,
+ * then receive independently filtered windows.
  */
 export declare function readUsage({ root, cachePath, days, now }: {
     root: string;

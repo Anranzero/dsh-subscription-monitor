@@ -4389,6 +4389,10 @@
             "id": "xiaomi/mimo-v2.6-pro",
             "name": "MiMo V2.6 Pro",
             "contextWindow": 1048576,
+            "reasoningEfforts": {
+                "off": "none",
+                "high": "high"
+            },
             "input": [
                 "text",
                 "image"
@@ -4407,6 +4411,10 @@
             "id": "xiaomi/mimo-v2.6-flash",
             "name": "MiMo V2.6 Flash",
             "contextWindow": 1048576,
+            "reasoningEfforts": {
+                "off": "none",
+                "high": "high"
+            },
             "input": [
                 "text",
                 "image"

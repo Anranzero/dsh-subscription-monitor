@@ -45,6 +45,7 @@ export declare function openaiToAntigravity(payload: any, { projectId, sessionId
 export declare function antigravityBodyError(body: any): UpstreamFailure | undefined;
 export declare function collectAntigravityParts(body: any, { sessionId }?: any): {
     text: string;
+    thinking: string;
     toolCalls: any[];
     finishReason: string;
     rawFinish: any;

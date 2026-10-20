@@ -43,6 +43,8 @@ registry 上的包不一样，把它路由进来正是过去导致插件 import 
 
 ## 工作台
 
+在 **插件 → 订阅用量** 详情页可直接切换 **启用统计**，默认开启。关闭后隐藏统计页签和账号菜单中的统计入口，关闭已打开的统计弹窗，并停止从这些入口发起统计读取；额度、模型和用量页继续可用，历史数据不删除。开关保存在当前浏览器或桌面客户端。采用 DSH 的 `plugins.bundle.config` 配置入口和原生 Switch；本地自动检查覆盖开关持久化与统计入口关闭，实际桌面显示尚需重载插件后确认。
+
 | 页签 | 作用 |
 |---|---|
 | **额度** | 每个账号一张卡片——套餐徽章、用量与重置进度条。约每分钟自动刷新，也可点 **刷新额度**。 |
@@ -58,6 +60,14 @@ registry 上的包不一样，把它路由进来正是过去导致插件 import 
 Command Code（不含无 Provider API 权限的 Go 套餐）、MiniMax、Ollama Cloud 由宿主直接请求官方 API，不再经过本地转发。同步路由前会把当前账号的 Key 写入宿主私有凭据，切换账号也同步更换；原有模型开关、名称和自定义窗口保留，Command Code 的 Claude 模型自动使用 Messages 协议。OpenCode Go/Zen 原本就已直连。直连请求使用宿主网络设置，不经过本插件配置的出站代理。
 
 升级后重启 DSH 即可应用；原会话若选用旧 Chat 路由下的 Command Code Claude，需重新选择一次对应的 Messages 模型。
+
+Command Code 原生请求遇到明确的建连超时（`UND_ERR_CONNECT_TIMEOUT` / `ERR_SOCKET_CONNECTION_TIMEOUT`）时，插件最多尝试 3 次，沿用原生网络设置和调用方的取消信号，并在 `upstream.log` 记录恢复尝试。仅限 Provider API 的 JSON POST；HTTP 错误、连接重置、响应头/正文超时和已经返回的流不在此处重放。2026-10-20 已复现 TLS 建连超时，并用本地握手故障验证恢复后服务端只收到一次 POST；这项恢复不等于解决所有网络或上游流停滞问题。
+
+Command Code 的 MiMo V2.6 Pro / Flash 使用 Responses 协议，提供「关闭 / 高」两个思考选项，默认开启；「高」表示开启思考，不代表小米支持多档推理强度。旧会话需重新选择一次对应的 MiMo 模型。Go 套餐保留原 CLI 适配，不启用此开关。
+Command Code Responses 流的 `response.reasoning.delta` 会逐帧适配为宿主识别的 `response.reasoning_text.delta`，避免推理增量被忽略、整段思考结束后才集中显示。2026-10-20 的真实会话第 7.2 秒开始推理，却直到第 74.9 秒才显示内容；原始上游事件与同数据 SDK 对照已确认该事件名不兼容。适配不缩短模型本身的思考时间，也不把缺失的流结束标记伪造成成功。
+
+Kiro 的空正文或仅含元数据的成功 HTTP 响应会作为上游失败处理，输出前按现有策略重试；有效正文、思考、工具调用和明确的输出上限事件继续正常结束。Antigravity 的思考文本通过 `reasoning_content` 单独转发，沿用累计内容去重并保留工具签名；已输出思考后若缺少 `finishReason`，仍按断流处理。两项修复经本地模拟验证，未用真实 Kiro/Antigravity 账号验收。
+依据：[小米思考开关](https://mimo.mi.com/docs/en-US/quick-start/usage-guide/other/deep-thinking)、[小米 Responses 参数](https://mimo.mi.com/docs/en-US/api/chat/responses)、[Command Code Provider API](https://commandcode.ai/docs/provider)。2026-10-20 实测：Chat 忽略 `thinking.type=disabled` 且拒绝 `reasoning_effort=off`；Responses 的 `reasoning.effort=none` 返回 0 推理 token，`high` 返回推理内容。两款模型的宿主 SDK 流式文本开关均通过，开启思考的工具调用及结果回传也通过。工具请求首轮出现超时、复测成功，不能据此认定原超时问题已解决；运行中的 DSH 尚未重新加载插件，界面操作未验收。
 
 模型页只显示已配置账号或密钥的供应商；已配置但模型全关的供应商仍保留，新增账号从额度页进入。Grok 与 Cursor 的模型标明调用通道，开关保持独立。Grok 上游同时确认统一账单和 Cursor 合并时，额度页标注共享池并保留完整产品用量明细；产品明细不代表额外额度。当前 Cursor 旧额度接口不提供跨账号共享池标识，因此不会仅凭邮箱或套餐名合并两边卡片，也不会将两边余额相加。
 
@@ -156,6 +166,11 @@ Command Code（不含无 Provider API 权限的 Go 套餐）、MiniMax、Ollama 
 | `cursorProxy` | — | Cursor 上游代理（`http://` 或 `socks5://`），用于区域门模型 |
 
 ### 诊断
+
+Cursor 只有收到明确的回合完成、Connect 结束帧或交给 DSH 的工具调用后才算完成。
+连接在完整数据帧之间提前结束也按截断处理：输出前使用现有重试策略恢复；
+已经输出部分内容时报告流中断，不再追加成功结束标记。仅带错误码的 Connect
+结束帧仍按上游错误处理。这些检查避免截断被误报成功，不代表外部连接故障已消除。
 
 Codex 请求按需编码：WebSocket 成功时跳过 HTTP 全量序列化和 Zstd 压缩；
 回退 HTTP 时才异步压缩，同一请求的重试复用编码结果。压缩不再阻塞 Node

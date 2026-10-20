@@ -70,6 +70,38 @@ test('Command Code Go retains its required adapter and a later sync removes stal
   assert.equal(settings.providers['oauth-command-code'].apiKeyEnv, 'DSH_OAUTH_SUBS_API_KEY')
 })
 
+test('MiMo thinking uses Responses while preserving picker keys, context, aliases and cleanup', async () => {
+  const settings = fixture()
+  const mimo = ['xiaomi/mimo-v2.6-pro', 'xiaomi/mimo-v2.6-flash']
+  const options = { settings, prefix: 'oauth', origin, loggedIn: { 'command-code': true },
+    selected: [...mimo, chat, claude].map(id => `oauth-command-code/${id}`),
+    contexts: { [`oauth-command-code/${mimo[0]}`]: 100000 } }
+  await syncHarnessModels(options)
+  const route = settings.providers['oauth-command-code-responses']
+  assert.ok(route, 'MiMo must use the endpoint that honors thinking off')
+  assert.equal(route.api, 'openai-responses')
+  assert.equal(route.baseURL, 'https://api.commandcode.ai/provider/v1')
+  assert.equal(route.apiKeyEnv, 'DSH_SUBS_COMMAND_CODE_API_KEY')
+  assert.equal(route.compat, undefined)
+  assert.equal(route.reasoning, 'high', 'preserve MiMo default thinking on')
+  assert.deepEqual(route.models.map((m: any) => m.id), mimo)
+  assert.equal(route.models[0].contextWindow, 100000)
+  assert.equal(route.models[0].name, 'Command Code/MiMo V2.6 Pro')
+  for (const model of route.models) assert.deepEqual(model.reasoningEfforts, { off: 'none', high: 'high' })
+  assert.deepEqual(settings.providers['oauth-command-code'].models.map((m: any) => m.id), [chat])
+  assert.equal(settings.providers['oauth-command-code-messages'].api, 'anthropic-messages')
+  await syncHarnessModels({ ...options, efforts: { 'command-code': 'off' } })
+  assert.equal(settings.providers['oauth-command-code-responses'].reasoning, 'off')
+  await syncHarnessModels({ ...options, commandCodePlan: 'individual-go' })
+  assert.equal(settings.providers['oauth-command-code-responses'], undefined)
+  for (const model of settings.providers['oauth-command-code'].models.filter((m: any) => mimo.includes(m.id))) {
+    assert.equal(model.reasoningEfforts, undefined, 'Go adapter has no verified MiMo thinking switch')
+  }
+  await syncHarnessModels(options)
+  const removed = await removeHarnessModels({ settings, prefix: 'oauth', origin })
+  assert.ok(removed.includes('oauth-command-code-responses'))
+})
+
 test('withdrawal handles both migrated direct and legacy routes without deleting user routes', async () => {
   const settings = fixture()
   await syncHarnessModels({ settings, prefix: 'oauth', origin, loggedIn: { 'command-code': true, minimax: true } })

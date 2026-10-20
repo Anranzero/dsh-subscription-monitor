@@ -42,7 +42,7 @@ function agentOf(provider: string) {
   if (provider.startsWith('opencode-go-')) return 'OpenCode Go'
   if (provider.startsWith('opencode-zen-')) return 'OpenCode Zen'
   if (provider.startsWith('oauth-zed-')) return 'Zed'
-  if (provider === 'oauth-command-code-messages') return 'Command Code'
+  if (provider === 'oauth-command-code-messages' || provider === 'oauth-command-code-responses') return 'Command Code'
   const family = provider.slice('oauth-'.length) as keyof typeof agentNames
   assert.ok(agentNames[family], `Uncovered family: ${family}`)
   return agentNames[family]
