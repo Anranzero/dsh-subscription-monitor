@@ -1,32 +1,42 @@
 # AGENTS.md
 
-本文件对 **dsh-subscription-monitor** 的每一次改动都有约束力，对话里的临时说法不能盖过它。
-它只做索引：下面链接的文档与本文件同等约束，动手前先读和改动相关的那几份。
+本文件说明 **dsh-subscription-monitor** 当前的开发方式和维护约定。
+
+## 当前源码与验证方式
+
+- **`lib/**/*.js` 是当前直接维护、提交并由 DSH 执行的 JavaScript 源码。允许直接修改 `lib/`；界面入口是 `lib/ui/client.js`。** `lib/` 的目录名和相邻的 `.d.ts` 类型声明，不代表这些文件在当前仓库中只读或需要重新生成。
+- 当前仓库没有 `src/`、`tsconfig.json` 或 `tsconfig.ui.json`。`package.json` 中的 `build`、`dev-build`、`dev`、`test`、`typecheck`、`prepublishOnly` 仍关联旧 TypeScript 构建流程，不适合作为当前验证入口；不要要求先找到 `src/` 或先构建才能修改代码。
+- 直接修改当前文件并验证。缓存、旧发布包或其他版本中的 TypeScript 文件不能作为覆盖当前 `lib/` 的依据；恢复 TypeScript 构建属于单独的迁移任务。
+- `.d.ts` 是类型声明；修改公开接口时同步核对对应声明。`test/` 和 `scripts/` 中已有的 TypeScript 文件不代表存在完整的 TypeScript 构建工程。
+
+修改 JavaScript 后，对涉及的文件执行 `node --check`。行为改动运行直接相关的现有测试；需要完整回归时执行：
+
+```sh
+node --experimental-test-module-mocks --experimental-strip-types --test 'test/*.test.ts'
+```
+
+纯文档修改检查差异、链接和路径即可，不要求运行模型请求、构建或完整测试。
 
 ## codebase-memory-mcp
-本项目已配置 `codebase-memory-mcp` MCP。理解代码库、查找符号、追踪调用链、评估改动影响时，优先主动调用它，而不是只用 grep/逐文件阅读。若未索引，先调用 `index_repository`。
+若当前会话提供 `codebase-memory-mcp`，理解代码库、查找符号、追踪调用链时优先使用；服务不可用时直接使用 `rg` 和文件阅读，不以安装或索引服务作为维护前置条件。
 
 ## 文档索引
 
 | 文档 | 管什么 | 什么时候读 |
 |---|---|---|
-| [`docs/rules.md`](docs/rules.md) | 跨家族硬规则：代码归属、缓存隔离、会话 id、闭集、模型行、别名、隐私 | 每次改动 |
-| [`docs/development.md`](docs/development.md) | 技术栈、命令、三种安装来源、热重载、版本号、本地安装测试、活测、发布门禁 | 构建、测试、安装、发版 |
-| [`CONTRIBUTING.md`](CONTRIBUTING.md) | 测试与类型检查、会话诊断、模块职责边界 | 写测试、排查慢会话 |
-| [`docs/oauth.md`](docs/oauth.md) | 每家的官方 / 社区对照与钉住版本（总表） | 改 hop、升级对照版本 |
-| [`docs/new-family.md`](docs/new-family.md) | 家族对齐 magpie/plugins：上游有的 provider 包就下载、就更新；不是 provider 的不接 | 加家族、跟上游包 |
-| [`docs/new-model.md`](docs/new-model.md) | 新模型接入：`npm run models` 探查、收不收、落地清单 | 加模型、探查上游上新 |
-| [`docs/models.md`](docs/models.md) | 模型目录的行格式、来源、`npm run models` 更新流程与合并规则、自定义窗口、费率表 | 改模型、更新目录 |
-| `src/oauth/<id>/README.md`、`src/apikey/<id>/README.md` | 该家的设计源：登录、hop、模型出处、额度、缓存、不要做的事、归因（抄什么 / 不要发明什么） | 改该家任何东西 |
-| [`docs/error.md`](docs/error.md) | 故障与活测结论 | 修 bug、复现问题 |
-| [`docs/arena-data-sources.md`](docs/arena-data-sources.md) | Arena 榜单数据源核查：官方 HF 数据集、Wayback 归档与浏览器验证的实测边界 | 改榜单取数、判断某字段还有没有别的来源 |
-| [`design-system/MASTER.md`](design-system/MASTER.md)、[`design-system/pages/settings-workbench.md`](design-system/pages/settings-workbench.md) | 设置工作台的界面规则 | 改 UI |
-| [`PRODUCT.md`](PRODUCT.md) | 产品定位与用户 | 做产品取舍 |
+| [`NOTICE.md`](NOTICE.md) | 项目归属、维护方式与依赖说明 | 了解项目维护背景 |
+| [`README.zh.md`](README.zh.md)、[`README.md`](README.md) | 安装、功能、数据位置和诊断入口 | 使用与排查 |
+| [`lib/oauth/`](lib/oauth/)、[`lib/apikey/`](lib/apikey/) | 各家族当前的登录、模型、路由和额度实现 | 改家族相关行为 |
+| [`lib/catalog/`](lib/catalog/) | 模型目录、参数和费率 | 改模型与参数 |
+| [`lib/ui/client.js`](lib/ui/client.js) | 当前直接维护的界面代码 | 改 UI |
+| [`test/`](test/)、[`scripts/`](scripts/) | 行为测试与分析脚本；构建类脚本适用范围见上文 | 验证与诊断 |
+
+以上以仓库实际存在的文件为准。旧注释中的 `src/`、`docs/` 等路径不构成当前开发的前置依赖。
 
 ## 始终成立
 
-- 只写 TypeScript；`lib/` 由构建生成，不手改，提交前重建（[development](docs/development.md)）。
-- 家族专属代码和缓存留在该家目录里，不同家族之间不共用缓存或会话标识（[rules](docs/rules.md)）。
-- 模型参数都要有出处，不发明数字（[models](docs/models.md)）。
-- 反复出现的故障和活测结论，同一个 PR 记进 `docs/error.md`。
+- 按上面的当前维护方式修改 `lib/`，保留已有改动、代码风格、编码和换行，不顺手重构。
+- 家族专属代码和缓存留在该家目录里，不同家族之间不共用缓存或会话标识。
+- 模型参数都要有出处，不发明数字。
+- 故障和验证结论记入相关说明或 PR，区分静态检查、测试与实际请求的结果。
 - 一个任务一个 PR；不改版本号、不打 tag、不发布，这些由维护者做。

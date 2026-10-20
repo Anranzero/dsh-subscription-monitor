@@ -6,6 +6,8 @@
 
 项目来源与署名见 [NOTICE.md](NOTICE.md)。
 
+开发直接维护 `lib/` 中的 JavaScript 源码；当前验证命令和仓库维护约定见 [AGENTS.md](AGENTS.md)。
+
 **把你已经在付费的 AI 订阅接进 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)。** 登录一次，ChatGPT / Codex、Grok、GLM、Kiro、Antigravity、Cursor、Ollama Cloud、Kimi、Devin、Cline 的套餐就变成会话里能直接选的模型——额度、模型、用量都在一个工作台里。
 
 ## 快速开始
@@ -117,7 +119,7 @@ Command Code（不含无 Provider API 权限的 Go 套餐）、MiniMax、Ollama 
 | Command Code | 粘贴 API key / `COMMAND_CODE_API_KEY` / 导入 `~/.commandcode/auth.json`；或 studio 浏览器登录 | `openai-completions` |
 | OpenCode Go | 粘贴 API key（额度需可选的控制台 cookie/工作区）；直连，不走代理 | `openai-completions` / `openai-responses` |
 
-各家族的设计、钉住的客户端版本与上游 hop：[docs/oauth.md](docs/oauth.md) 与各 `src/oauth/<id>/README.md` / `src/apikey/<id>/README.md`。
+各家族当前的实现与上游接口说明见 [lib/oauth/](lib/oauth/) 和 [lib/apikey/](lib/apikey/)。
 
 ### 工作原理
 
@@ -136,7 +138,7 @@ Command Code（不含无 Provider API 权限的 Go 套餐）、MiniMax、Ollama 
 
 **额度** 页签为每个账号显示套餐徽章与用量 / 重置进度条（Ollama Cloud：会话 / 每周用量），约每分钟刷新一次，或点 **刷新额度**。
 
-各家族的模型目录、effort、窗口、额度端点与费率出处：[docs/models.md](docs/models.md)、[docs/oauth.md](docs/oauth.md) 与各家族 README。
+模型目录与费率见 [lib/catalog/](lib/catalog/)；effort、窗口和额度处理见各家族实现。
 
 ### 数据位置
 
@@ -192,10 +194,10 @@ npm run analyze -- path/to/session.jsonl              # 单个会话
 npm run analyze -- --dir ~/.dsh/sessions --since 30d  # 汇总所有会话
 ```
 
-健康标准：加权缓存命中 ≥ **80%**，**零 affinity miss**。调用会被标记为 `cold_start` / `delta` / `compaction` / `rebuild` / `affinity_miss`，所以压缩不会被误判成分片回归。详见 [CONTRIBUTING.md](CONTRIBUTING.md) 与 [docs/error.md](docs/error.md)。
+健康标准：加权缓存命中 ≥ **80%**，**零 affinity miss**。调用会被标记为 `cold_start` / `delta` / `compaction` / `rebuild` / `affinity_miss`，所以压缩不会被误判成分片回归。实现见 [lib/utils/analyze-session.js](lib/utils/analyze-session.js)。
 
 </details>
 
 ## 参与开发
 
-欢迎提 issue 和 PR。构建、测试与发布命令见 [CONTRIBUTING.md](CONTRIBUTING.md) 与 [docs/development.md](docs/development.md)。
+欢迎提 issue 和 PR。当前源码布局、维护方式和验证命令见 [AGENTS.md](AGENTS.md)。

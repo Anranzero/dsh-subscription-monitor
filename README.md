@@ -7,6 +7,8 @@
 
 Project origin and attribution: [NOTICE.md](NOTICE.md).
 
+Development: edit the maintained JavaScript source in `lib/` directly. Current validation commands and repository guidance are in [AGENTS.md](AGENTS.md).
+
 **Use the AI subscriptions you already pay for, inside [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness).** Sign in once and your ChatGPT / Codex, Grok, GLM, Kiro, Antigravity, Cursor, Ollama Cloud, Kimi, Devin or Cline plan becomes a model you can pick in any session — with quota, models and usage in one workbench.
 
 ## Quick start
@@ -121,7 +123,7 @@ Codex defaults to automatic transport: the first HTTP request preconnects a WebS
 | Command Code | Paste API key / `COMMAND_CODE_API_KEY` / import `~/.commandcode/auth.json`; or studio browser login | `openai-completions` |
 | OpenCode Go | Paste API key (+ optional Console cookie/workspace for quota); direct, no proxy | `openai-completions` / `openai-responses` |
 
-Per-family design, pinned client versions, and upstream hops: [docs/oauth.md](docs/oauth.md) and each `src/oauth/<id>/README.md` / `src/apikey/<id>/README.md`.
+Per-family implementation and upstream details are maintained in [lib/oauth/](lib/oauth/) and [lib/apikey/](lib/apikey/).
 
 ### How it works
 
@@ -140,7 +142,7 @@ The **Models** tab has per-family switches (all on by default); a row's window b
 
 The **Quota** tab shows a plan badge plus usage/reset bars for every account (Ollama Cloud: session/weekly usage), refreshed about once a minute or via **Refresh quota**.
 
-Per-family model catalogs, efforts, windows, quota endpoints, and pricing sources: [docs/models.md](docs/models.md), [docs/oauth.md](docs/oauth.md), and the family READMEs.
+Per-family model catalogs and pricing are in [lib/catalog/](lib/catalog/); effort, window and quota handling are in each family's implementation.
 
 ### Where data lives
 
@@ -164,10 +166,10 @@ npm run analyze -- path/to/session.jsonl              # one session
 npm run analyze -- --dir ~/.dsh/sessions --since 30d  # aggregate every session
 ```
 
-Healthy: weighted cache hit ≥ **80%**, **zero affinity misses**. Calls are labeled `cold_start` / `delta` / `compaction` / `rebuild` / `affinity_miss`, so compaction is not flagged as a shard regression. Details: [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/error.md](docs/error.md).
+Healthy: weighted cache hit ≥ **80%**, **zero affinity misses**. Calls are labeled `cold_start` / `delta` / `compaction` / `rebuild` / `affinity_miss`, so compaction is not flagged as a shard regression. Implementation: [lib/utils/analyze-session.js](lib/utils/analyze-session.js).
 
 </details>
 
 ## Contributing
 
-Issues and pull requests are welcome. Build, test and release commands live in [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/development.md](docs/development.md).
+Issues and pull requests are welcome. Follow [AGENTS.md](AGENTS.md) for the current source layout and validation commands.

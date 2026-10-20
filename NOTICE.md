@@ -61,9 +61,12 @@ Features and maintenance work include:
 
 ## Maintenance
 
-Runtime changes are maintained in `lib/`. Validate touched JavaScript files with
-`node --check` and run the relevant behavioral tests; the bundled `npm run build`
-and `npm test` scripts do not match the current repository layout.
+`lib/**/*.js` is the current maintained JavaScript source and the code DSH runs;
+edit and commit it directly. Adjacent `.d.ts` files are type declarations.
+The repository has no `src/` or TypeScript build configuration; the retained
+build-related package scripts target the former layout. Follow [AGENTS.md](AGENTS.md)
+for syntax checks and direct test commands, rather than requiring a TypeScript
+rebuild or replacing current code with an older source snapshot.
 The data directory remains `data/dsh-plugin-oauth-subs` for compatibility with
 existing credentials and usage caches.
 
