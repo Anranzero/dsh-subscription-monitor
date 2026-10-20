@@ -102,21 +102,21 @@ test('statistics controller requests all history while the usage tab keeps 30 da
 })
 
 const client = readFileSync(new URL('../lib/ui/client.js', import.meta.url), 'utf8')
-function renderStats(range: string, rows: any[]) {
-  const state = [range, 'day', -1, null]
+function renderStats(range: string, rows: any[], heatMode = 'day', scope = 'all') {
+  const state = [range, heatMode, -1, null]
   class Clock extends Date {
     constructor(value: any = now) { super(value) }
     static now() { return now }
   }
   const helpers = client.slice(client.indexOf('        const dayKey ='), client.indexOf('        // ── Long screenshot'))
   const panel = client.slice(client.indexOf('        const STATS_RANGE_STORE'), client.indexOf('        function UsagePanel'))
-  return runInNewContext(helpers + '\n' + panel + '\nStatsPanel({ t, data, scope: "all" })', {
+  return runInNewContext(helpers + '\n' + panel + '\nStatsPanel({ t, data, scope })', {
     Date: Clock, HOUR_MS: 3600000, Fragment: 'fragment', Button: 'button', IconRefresh: 'refresh',
     useState: () => [state.shift(), () => {}], useRef: () => ({ current: null }),
     h: (type: any, props: any, ...children: any[]) => ({ type, props: props ?? {}, children: children.flat(Infinity).filter(value => value != null) }),
-    t: new Proxy({ statsDays: '{n} d' }, { get: (obj: any, key: string) => obj[key] ?? key }),
+    t: new Proxy({ statsDays: '{n} d', usageTokens: 'Token', usageCallsN: '{n} 次调用' }, { get: (obj: any, key: string) => obj[key] ?? key }),
     fill: (text: string, value: any) => text.replace('{n}', String(value)), localeOf: () => 'zh',
-    data: { at: now, rows, sessions: [] },
+    data: { at: now, rows, sessions: [] }, scope,
   })
 }
 function nodes(tree: any): any[] {
@@ -154,6 +154,46 @@ test('an idle today keeps historical activity visible rather than replacing it w
   const values = nodes(strip).filter(node => node.props.className === 'osubs-sitem-v').map(node => node.children[0])
   assert.equal(values[0], '0')
   assert.equal(values[4], '1 d')
+})
+
+const heatRow = (date: string, tokenCount: number, callCount: number, family = 'fixture') =>
+  [Date.parse(`${date}T12:00:00+08:00`) / 3600000, family, 'model', callCount, tokenCount, 0, 0, 0]
+function heatLabel(tree: any, date: string) {
+  return nodes(tree).find(node => node.type === 'i' && node.props['aria-label']?.startsWith(date + ' ·'))?.props['aria-label']
+}
+
+test('cumulative heatmap ends at each day, including calls, across weeks and range filters', () => {
+  const rows = [heatRow('2026-10-20', 300, 3), heatRow('2026-10-18', 100, 1),
+    heatRow('2026-10-19', 200, 2), heatRow('2026-10-19', 9000, 90, 'other')]
+  for (const range of ['1', '7', '30', 'all']) {
+    const tree = renderStats(range, rows, 'total', 'fixture')
+    assert.equal(heatLabel(tree, '2026-10-17'), '2026-10-17 · 0 Token')
+    assert.equal(heatLabel(tree, '2026-10-18'), '2026-10-18 · 100 Token · 1 次调用')
+    assert.equal(heatLabel(tree, '2026-10-19'), '2026-10-19 · 300 Token · 3 次调用')
+    assert.equal(heatLabel(tree, '2026-10-20'), '2026-10-20 · 600 Token · 6 次调用')
+  }
+})
+
+test('daily and weekly heatmaps use matching token and call aggregation', () => {
+  const rows = [heatRow('2026-10-18', 100, 1), heatRow('2026-10-19', 200, 2), heatRow('2026-10-20', 300, 3)]
+  const daily = renderStats('all', rows)
+  assert.equal(heatLabel(daily, '2026-10-19'), '2026-10-19 · 200 Token · 2 次调用')
+  const weekly = renderStats('all', rows, 'week')
+  assert.equal(heatLabel(weekly, '2026-10-18'), '2026-10-18 · 100 Token · 1 次调用')
+  assert.equal(heatLabel(weekly, '2026-10-19'), '2026-10-19 · 500 Token · 5 次调用')
+  assert.equal(heatLabel(weekly, '2026-10-20'), '2026-10-20 · 500 Token · 5 次调用')
+})
+
+test('cumulative heatmap carries previous totals through an idle day', () => {
+  const tree = renderStats('all', [heatRow('2026-10-18', 100, 1), heatRow('2026-10-20', 300, 3)], 'total')
+  assert.equal(heatLabel(tree, '2026-10-19'), '2026-10-19 · 100 Token · 1 次调用')
+  assert.equal(heatLabel(tree, '2026-10-20'), '2026-10-20 · 400 Token · 4 次调用')
+})
+
+test('cumulative heatmap includes history before the visible year', () => {
+  const tree = renderStats('all', [heatRow('2025-01-01', 700, 7), heatRow('2026-10-20', 100, 1)], 'total')
+  assert.equal(heatLabel(tree, '2026-10-19'), '2026-10-19 · 700 Token · 7 次调用')
+  assert.equal(heatLabel(tree, '2026-10-20'), '2026-10-20 · 800 Token · 8 次调用')
 })
 
 // Fix the timezone in this test process only; production follows the user's locale.
