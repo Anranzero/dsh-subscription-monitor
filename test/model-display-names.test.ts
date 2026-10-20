@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import { catalogProviders, FAMILY_IDS, harnessModelAlias } from '../lib/oauth/models.js'
 import { ensureOpencodeGoRoute, ensureOpencodeZenRoute, syncHarnessModels } from '../lib/oauth/harness-sync.js'
 import { opencodeGoRoutes, opencodeZenRoutes } from '../lib/apikey/opencode-go/models.js'
+import { directApiKeyProviders } from '../lib/apikey/direct-routes.js'
 
 const origin = 'http://localhost:12345'
 const agentNames = {
@@ -41,6 +42,7 @@ function agentOf(provider: string) {
   if (provider.startsWith('opencode-go-')) return 'OpenCode Go'
   if (provider.startsWith('opencode-zen-')) return 'OpenCode Zen'
   if (provider.startsWith('oauth-zed-')) return 'Zed'
+  if (provider === 'oauth-command-code-messages') return 'Command Code'
   const family = provider.slice('oauth-'.length) as keyof typeof agentNames
   assert.ok(agentNames[family], `Uncovered family: ${family}`)
   return agentNames[family]
@@ -67,8 +69,8 @@ test('keeps two-argument compatibility and uses safe fallback without guessing b
   assert.equal(harnessModelAlias('custom-provider', 'vendor/wire-id', 'Vendor Model'), 'custom-provider/Vendor Model')
 })
 
-test('both synchronization paths change only model names across the complete catalog', async () => {
-  const catalog = catalogProviders({ prefix: 'oauth', origin })
+test('synchronization preserves canonical model names across native and proxy routes', async () => {
+  const catalog = directApiKeyProviders(catalogProviders({ prefix: 'oauth', origin }))
   // OpenCode's existing writer preserves raw route rows (caps and compat);
   // the settings picker projection intentionally has a different row shape.
   for (const route of [...opencodeGoRoutes(), ...opencodeZenRoutes()]) {

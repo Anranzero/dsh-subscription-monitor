@@ -85,7 +85,7 @@ export declare function ensureOpencodeZenRoute(settings: any, options?: any): Pr
  * be dropped from one caller's bag again. Without `glmModels`, models.ts
  * falls back to its static GLM_MODELS floor.
  */
-export declare function syncHarnessModels({ settings, patchPath, prefix, origin, loggedIn, selected, glmModels, contexts, efforts, extraMutations }: any): Promise<{
+export declare function syncHarnessModels({ settings, patchPath, prefix, origin, loggedIn, selected, glmModels, contexts, efforts, extraMutations, commandCodePlan }: any): Promise<{
     routes: {
         provider: string;
         api: string;

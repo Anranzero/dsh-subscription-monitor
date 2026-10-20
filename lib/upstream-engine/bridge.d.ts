@@ -16,8 +16,8 @@
  */
 /** Point the engine lane at a fake (tests); production rides outboundFetch. */
 export declare function configureEngineBridge({ fetchFn }?: any): void;
-/** Declare the endpoint hosts an engine family's package speaks to. */
-export declare function registerEngineHosts(family: string, hosts: readonly string[]): void;
+/** Declare engine hosts; exact directPaths remain on the host's native fetch. */
+export declare function registerEngineHosts(family: string, hosts: readonly string[], options?: { directPaths?: readonly string[] }): void;
 /** Which family owns a host, for diagnostics and tests. */
 export declare function engineHostOwner(host: string): string | undefined;
 /** Test seam: restore the original global fetch and forget every host. */

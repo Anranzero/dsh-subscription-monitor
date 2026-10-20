@@ -57,6 +57,10 @@ Configured providers are checked for new models at startup, after login, and eve
 
 Disabling the plugin withdraws its host model routes while retaining credentials and picker preferences; enabling it restores the saved selection. User-owned routes are preserved.
 
+Command Code (except Go, which has no Provider API access), MiniMax and Ollama Cloud use the host's native clients with official API URLs. Keys are mirrored into private host credentials before routes are updated; account switches update the key too. Existing model selections, names and context overrides are retained. Command Code Claude models use the native Messages protocol. OpenCode Go/Zen already connect directly. Direct requests follow the host's network settings rather than this plugin's outbound proxy.
+
+Restart DSH after upgrading to apply these routes. A conversation using Command Code Claude on the old Chat route needs its model reselected once for the Messages route.
+
 Codex defaults to automatic transport: the first HTTP request preconnects a WebSocket in the background, and later turns reuse it with incremental inputs when compatible. Failures fall back to HTTP. `DSH_CODEX_WEBSOCKET=off` forces HTTP; `on` permits cold connections. The local `/health` response exposes content-free transport counters and the latest stage timings in `codexTransport`; `firstText` measures the first non-empty upstream text delta, excluding UI rendering.
 
 ## Supported services
