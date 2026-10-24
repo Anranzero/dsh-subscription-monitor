@@ -1,15 +1,21 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Subscription usage">
   <defs>
-    <linearGradient id="osubs-tile" x1="10" y1="6" x2="54" y2="58" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#4C77FF"/>
-      <stop offset="1" stop-color="#1B3BB8"/>
+    <linearGradient id="osubs-tile" x1="6" y1="0" x2="58" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1B2559"/>
+      <stop offset="1" stop-color="#3B5BFF"/>
+    </linearGradient>
+    <linearGradient id="osubs-arc" x1="16" y1="46" x2="48" y2="18" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#45E7A4"/>
+      <stop offset="1" stop-color="#69B9FF"/>
     </linearGradient>
   </defs>
   <rect width="64" height="64" rx="15" fill="url(#osubs-tile)"/>
-  <!-- One bold subject: a usage ring. The dim track is the allowance, the bright
-       arc is what has been consumed, so the mark still says "how much is used"
-       in a 20px plugin row. No thin decoration. -->
-  <circle cx="32" cy="32" r="17" fill="none" stroke="#FFFFFF" stroke-opacity="0.32" stroke-width="7"/>
-  <path d="M32 15a17 17 0 0 1 0 34" fill="none" stroke="#FFFFFF" stroke-width="7" stroke-linecap="round"/>
-  <circle cx="32" cy="32" r="4.5" fill="#FFFFFF"/>
+  <rect x="0.5" y="0.5" width="63" height="63" rx="14.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.16"/>
+  <!-- One subject: a dial. The 270° ring is the allowance, the mint-to-blue arc
+       is what has been consumed, and the needle with its pivot says "meter"
+       rather than "spinner" even at 30px in a plugin row. No thin decoration. -->
+  <path d="M20.69 45.31A16 16 0 1 1 43.31 45.31" fill="none" stroke="#FFFFFF" stroke-opacity="0.24" stroke-width="5.6" stroke-linecap="round"/>
+  <path d="M20.69 45.31A16 16 0 1 1 43.31 45.31" fill="none" pathLength="100" stroke-dasharray="72 100" stroke="url(#osubs-arc)" stroke-width="5.6" stroke-linecap="round"/>
+  <path d="M32 34 40.43 29.01" fill="none" stroke="#FFFFFF" stroke-width="3.6" stroke-linecap="round"/>
+  <circle cx="32" cy="34" r="3.9" fill="#FFFFFF"/>
 </svg>
