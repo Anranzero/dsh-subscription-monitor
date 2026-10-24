@@ -7,6 +7,8 @@ Original copyright and MIT license terms are retained in [LICENSE](LICENSE).
 Subsequent features, fixes and optimizations are developed and maintained as
 `dsh-subscription-monitor` by the current maintainer.
 
+Maintained repository: <https://github.com/Anranzero/dsh-subscription-monitor>
+
 ## Project development
 
 Features and maintenance work include:

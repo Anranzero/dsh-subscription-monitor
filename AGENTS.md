@@ -2,6 +2,8 @@
 
 本文件说明 **dsh-subscription-monitor** 当前的开发方式和维护约定。
 
+仓库：<https://github.com/Anranzero/dsh-subscription-monitor>
+
 ## 当前源码与验证方式
 
 - **`lib/**/*.js` 是当前直接维护、提交并由 DSH 执行的 JavaScript 源码。允许直接修改 `lib/`；界面入口是 `lib/ui/client.js`。** `lib/` 的目录名和相邻的 `.d.ts` 类型声明，不代表这些文件在当前仓库中只读或需要重新生成。

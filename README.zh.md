@@ -2,6 +2,8 @@
 
 简体中文 | [English](README.md)
 
+仓库：[https://github.com/Anranzero/dsh-subscription-monitor](https://github.com/Anranzero/dsh-subscription-monitor)
+
 > 侧边栏显示名：**订阅用量**（图标为用量环：暗色整环是配额，亮弧是用掉的份额）。
 
 项目来源与署名见 [NOTICE.md](NOTICE.md)。

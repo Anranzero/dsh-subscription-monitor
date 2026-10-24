@@ -2,6 +2,8 @@
 
 [简体中文](README.zh.md) | English
 
+Repository: [https://github.com/Anranzero/dsh-subscription-monitor](https://github.com/Anranzero/dsh-subscription-monitor)
+
 > Sidebar label: **Subscription usage** (the glyph is a usage ring: the dim ring is
 > the allowance, the bright arc is the consumed share).
 
