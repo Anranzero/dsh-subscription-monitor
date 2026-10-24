@@ -1,0 +1,6 @@
+# `files: ["lib"]` would otherwise pack the local edit backups that
+# .gitignore hides (lib/ui/client.js.bak-*, ~3.5 MB per release).
+*.bak-*
+**/*.bak*
+*.log
+*.tsbuildinfo
